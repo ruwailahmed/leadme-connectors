@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>leadme — Slack & Discord sources</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='9' fill='%237c8cff'/%3E%3C/svg%3E">
+<style>
+:root{--bg:#0b0d12;--panel:#12151c;--panel2:#171b24;--line:#232938;--tx:#e8ebf2;--mut:#8b93a7;--acc:#7c8cff;--acc2:#a78bfa;--ok:#34d399;--warn:#fbbf24;--bad:#f87171;--slack:#e01e5a;--discord:#5865f2;color-scheme:dark}
+@media (prefers-color-scheme:light){:root{--bg:#f5f6fa;--panel:#fff;--panel2:#f0f2f8;--line:#e1e5ef;--tx:#151a28;--mut:#6a7389;--acc:#4f5cf0;--acc2:#7c3aed;color-scheme:light}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--tx);font:14px/1.5 Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif}
+button{font:inherit;color:inherit;cursor:pointer}a{color:var(--acc)}
+.app{display:grid;grid-template-columns:232px 1fr;min-height:100vh}
+aside{border-right:1px solid var(--line);padding:20px 14px;background:var(--panel);position:sticky;top:0;height:100vh;display:flex;flex-direction:column;gap:4px}
+.logo{font-weight:800;font-size:19px;letter-spacing:-.02em;padding:4px 10px 18px;display:flex;gap:9px;align-items:center}
+.logo i{width:24px;height:24px;border-radius:8px;background:linear-gradient(135deg,var(--acc),var(--acc2));display:inline-block}
+.nav{display:flex;justify-content:space-between;align-items:center;padding:9px 12px;border-radius:9px;border:0;background:none;text-align:left;color:var(--mut);font-weight:500}
+.nav:hover{background:var(--panel2);color:var(--tx)}.nav.on{background:var(--panel2);color:var(--tx)}
+.badge{background:var(--acc);color:#fff;border-radius:99px;font-size:11px;padding:1px 7px;font-weight:700}
+.sidefoot{margin-top:auto;padding:10px;color:var(--mut);font-size:12px;border-top:1px solid var(--line)}
+main{padding:28px 34px 60px;max-width:1180px;width:100%}
+h1{font-size:24px;letter-spacing:-.02em;margin:0 0 4px}.sub{color:var(--mut);margin:0 0 22px}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:24px}
+.stat{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 16px}.stat b{display:block;font-size:24px;letter-spacing:-.02em}.stat span{color:var(--mut);font-size:12px}
+.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}.sp{flex:1}
+.btn{background:var(--panel2);border:1px solid var(--line);border-radius:9px;padding:8px 14px;font-weight:600}.btn:hover{border-color:var(--acc)}
+.btn.pri{background:linear-gradient(135deg,var(--acc),var(--acc2));border:0;color:#fff}.btn.sm{padding:4px 10px;font-size:12px}.btn.danger:hover{border-color:var(--bad);color:var(--bad)}
+.btn[disabled]{opacity:.5;cursor:not-allowed}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:14px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px}
+.pill{display:inline-flex;gap:6px;align-items:center;font-size:12px;font-weight:600;padding:2px 9px;border-radius:99px;background:var(--panel2);border:1px solid var(--line)}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--mut)}.healthy .dot,.listening .dot{background:var(--ok);box-shadow:0 0 0 3px #34d39922}.degraded .dot{background:var(--warn)}.disconnected .dot,.bad_match .dot{background:var(--bad)}.paused .dot,.draft .dot{background:var(--mut)}
+.plat{width:34px;height:34px;border-radius:10px;display:grid;place-items:center;font-weight:800;color:#fff}.plat.slack{background:var(--slack)}.plat.discord{background:var(--discord)}
+.mut{color:var(--mut)}.small{font-size:12px}
+.ws{display:flex;gap:10px;align-items:center;padding:9px 10px;border:1px solid var(--line);border-radius:10px;background:var(--panel2);cursor:pointer;margin-top:8px}.ws:hover{border-color:var(--acc)}
+.ws.on{border-color:var(--acc)}.ws .ic{font-size:20px}
+.chlist{max-height:220px;overflow:auto;margin-top:8px;border:1px solid var(--line);border-radius:10px}
+.ch{display:flex;gap:9px;align-items:center;padding:7px 11px;border-bottom:1px solid var(--line);cursor:pointer}.ch:last-child{border:0}.ch:hover{background:var(--panel2)}
+input[type=text],input[type=password],textarea,select{width:100%;background:var(--panel2);border:1px solid var(--line);color:var(--tx);border-radius:9px;padding:9px 11px;font:inherit}
+textarea{min-height:86px;resize:vertical}input:focus,textarea:focus,select:focus{outline:2px solid var(--acc);outline-offset:-1px}
+.modal{position:fixed;inset:0;background:#0009;display:none;place-items:center;padding:20px;z-index:20}.modal.show{display:grid}
+.sheet{background:var(--panel);border:1px solid var(--line);border-radius:16px;width:min(680px,100%);max-height:92vh;overflow:auto;padding:24px}
+.steps{display:flex;gap:6px;margin-bottom:18px}.steps i{flex:1;height:4px;border-radius:4px;background:var(--line)}.steps i.on{background:linear-gradient(90deg,var(--acc),var(--acc2))}
+label.f{display:block;font-weight:600;margin:14px 0 6px}
+.opt{display:flex;gap:8px;flex-wrap:wrap}.opt button{padding:7px 13px;border-radius:99px;border:1px solid var(--line);background:var(--panel2)}.opt button.on{border-color:var(--acc);background:#7c8cff22}
+.alert{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px;margin-bottom:12px}.alert.new{border-left:3px solid var(--acc)}
+.alert .msg{background:var(--panel2);border-radius:10px;padding:11px 13px;margin:10px 0;white-space:pre-wrap;word-break:break-word}
+.why{color:var(--ok);font-size:13px}.tabs{display:flex;gap:6px;margin-bottom:16px;flex-wrap:wrap}.tabs button{border:1px solid var(--line);background:var(--panel);border-radius:99px;padding:5px 14px}.tabs button.on{border-color:var(--acc);background:#7c8cff22}
+.empty{text-align:center;color:var(--mut);padding:46px 10px;border:1px dashed var(--line);border-radius:14px}
+.verdict{margin-top:10px;padding:10px 12px;border-radius:10px;border:1px solid var(--line)}.verdict.y{border-color:var(--ok);background:#34d39914}.verdict.n{border-color:var(--bad);background:#f8717114}
+#toast{position:fixed;right:20px;bottom:20px;display:flex;flex-direction:column;gap:8px;z-index:50}.t{background:var(--panel);border:1px solid var(--acc);border-radius:12px;padding:11px 14px;max-width:340px;box-shadow:0 8px 30px #0006;animation:in .25s}
+@keyframes in{from{transform:translateY(10px);opacity:0}}
+.banner{background:#fbbf2418;border:1px solid var(--warn);border-radius:12px;padding:10px 14px;margin-bottom:16px}
+@media(max-width:800px){.app{grid-template-columns:1fr}aside{position:static;height:auto;flex-direction:row;flex-wrap:wrap}.sidefoot{display:none}main{padding:18px}}
+</style>
+</head>
+<body>
+<div class="app">
+  <aside>
+    <div class="logo"><i></i>leadme</div>
+    <button class="nav on" data-v="connections">Connections</button>
+    <button class="nav" data-v="monitors">Monitors</button>
+    <button class="nav" data-v="alerts">Alerts <span class="badge" id="unread" hidden>0</span></button>
+    <div class="sidefoot"><span id="engine"></span><br>Read-only listening · manual replies</div>
+  </aside>
+  <main id="main"></main>
+</div>
+<div class="modal" id="modal"><div class="sheet" id="sheet"></div></div>
+<div id="toast"></div>
+<script>
+const $=s=>document.querySelector(s);
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+async function api(path,opt={}){const r=await fetch('/api'+path,{headers:{'content-type':'application/json'},...opt,body:opt.body?JSON.stringify(opt.body):undefined});const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.error||r.statusText);return j}
+const S={view:'connections',accounts:[],monitors:[],alerts:[],stats:{},filter:'',open:{}};
+const ago=t=>{const s=(Date.now()-t)/1000;return s<60?'just now':s<3600?Math.floor(s/60)+'m ago':s<86400?Math.floor(s/3600)+'h ago':Math.floor(s/86400)+'d ago'};
+const pill=(s,txt)=>`<span class="pill ${s}"><i class="dot"></i>${esc(txt||s.replace('_',' '))}</span>`;
+function toast(h){const e=document.createElement('div');e.className='t';e.innerHTML=h;$('#toast').append(e);setTimeout(()=>e.remove(),6000)}
+function modal(html){$('#sheet').innerHTML=html;$('#modal').classList.add('show')}
+function closeModal(){$('#modal').classList.remove('show')}
+$('#modal').addEventListener('mousedown',e=>{if(e.target.id==='modal')closeModal()});
+
+async function load(){
+  [S.accounts,S.monitors,S.alerts,S.stats]=await Promise.all([api('/accounts'),api('/monitors'),api('/alerts'+(S.filter?`?status=${S.filter}`:'')),api('/stats')]);
+  $('#unread').hidden=!S.stats.unread;$('#unread').textContent=S.stats.unread;
+  $('#engine').textContent=S.stats.ai==='llm'?'● AI classifier on':'● Rule classifier on';
+  render();
+}
+function render(){document.querySelectorAll('.nav').forEach(n=>n.classList.toggle('on',n.dataset.v===S.view));({connections:rConn,monitors:rMon,alerts:rAlerts})[S.view]()}
+document.querySelectorAll('.nav').forEach(n=>n.onclick=()=>{S.view=n.dataset.v;load()});
+
+const statsBar=()=>`<div class="stats"><div class="stat"><b>${S.stats.healthy}/${S.stats.accounts}</b><span>accounts healthy</span></div><div class="stat"><b>${S.stats.listening}</b><span>monitors listening</span></div><div class="stat"><b>${S.stats.channels}</b><span>channels watched</span></div><div class="stat"><b>${S.stats.alerts}</b><span>leads captured</span></div></div>`;
+
+/* ---------- Connections ---------- */
+function rConn(){
+  const degraded=S.accounts.filter(a=>a.status!=='healthy');
+  $('#main').innerHTML=`<div class="row"><div><h1>Connections</h1><p class="sub">Connect Slack and Discord accounts, then browse every workspace and channel.</p></div><div class="sp"></div><button class="btn pri" onclick="connectModal()">+ Connect account</button></div>${statsBar()}
+  ${degraded.map(a=>`<div class="banner">⚠️ <b>${esc(a.label)}</b> (${a.platform}) is ${a.status}${a.statusNote?': '+esc(a.statusNote):''}. <button class="btn sm" onclick="reconnect('${a.id}')">Reconnect</button></div>`).join('')}
+  ${S.accounts.length?`<div class="grid">${S.accounts.map(accCard).join('')}</div>`:`<div class="empty">No accounts yet. Connect Slack or Discord to get started.</div>`}`;
+  S.accounts.forEach(a=>{if(S.open[a.id])browse(a.id,false)});
+}
+const accCard=a=>`<div class="card" id="acc-${a.id}"><div class="row"><div class="plat ${a.platform}">${a.platform==='slack'?'S':'D'}</div><div><b>${esc(a.label)}</b><div class="mut small">${esc(a.email)} · ${a.mode==='demo'?'demo data':'live'}</div></div><div class="sp"></div>${pill(a.status)}</div>
+<div class="row" style="margin-top:12px"><button class="btn sm" onclick="browse('${a.id}',true)">${S.open[a.id]?'Hide':'Browse'} workspaces</button>${a.mode==='demo'?`<button class="btn sm" onclick="simulate('${a.id}','${a.status==='healthy'?'disconnected':'healthy'}')">${a.status==='healthy'?'Simulate drop':'Restore'}</button>`:''}<div class="sp"></div><button class="btn sm danger" onclick="removeAcc('${a.id}')">Remove</button></div><div class="mut small" style="margin-top:8px">Last sync ${a.lastSync?ago(a.lastSync):'—'}</div><div id="ws-${a.id}"></div></div>`;
+async function browse(id,toggle){
+  if(toggle)S.open[id]=!S.open[id];const box=$('#ws-'+id);if(!box)return;
+  if(!S.open[id]){box.innerHTML='';return}
+  box.innerHTML='<div class="mut small" style="margin-top:10px">Loading workspaces…</div>';
+  try{const ws=await api(`/accounts/${id}/workspaces`);
+    box.innerHTML=ws.map(w=>`<div class="ws" onclick="chans('${id}','${esc(w.id)}',this)"><span class="ic">${esc(w.icon)}</span><div><b>${esc(w.name)}</b><div class="mut small">${w.members?w.members.toLocaleString()+' members':'member'}</div></div></div><div id="ch-${id}-${esc(w.id)}"></div>`).join('')||'<div class="mut small">No workspaces.</div>'}
+  catch(e){box.innerHTML=`<div class="banner">${esc(e.message)}</div>`}
+}
+async function chans(id,wid,el){const box=document.getElementById(`ch-${id}-${wid}`);if(box.innerHTML){box.innerHTML='';return}
+  try{const cs=await api(`/accounts/${id}/workspaces/${wid}/channels`);box.innerHTML=`<div class="chlist">${cs.map(c=>`<div class="ch"><span class="mut">#</span>${esc(c.name)}<div class="sp"></div><span class="mut small">${c.members?c.members.toLocaleString():''}</span></div>`).join('')}</div>`}catch(e){box.innerHTML=esc(e.message)}}
+function connectModal(){modal(`<h2 style="margin-top:0">Connect account</h2>
+<label class="f">Platform</label><div class="opt" id="cp"><button class="on" data-v="slack">Slack</button><button data-v="discord">Discord</button></div>
+<label class="f">Mode</label><div class="opt" id="cm"><button class="on" data-v="demo">Demo data</button><button data-v="live">Live (token)</button></div>
+<label class="f">Label</label><input type="text" id="cl" placeholder="e.g. Main Slack">
+<div id="live" hidden><label class="f">Token</label><input type="password" id="ct" placeholder="Slack xoxp-… / Discord bot token" autocomplete="off"><p class="mut small">Read-only listening on accounts you own. Stored on this server only, never shown again.</p></div>
+<div class="row" style="margin-top:20px"><div class="sp"></div><button class="btn" onclick="closeModal()">Cancel</button><button class="btn pri" id="cgo">Connect</button></div><p id="cerr" class="small" style="color:var(--bad)"></p>`);
+  const grp=(id)=>{document.querySelectorAll(`#${id} button`).forEach(b=>b.onclick=()=>{document.querySelectorAll(`#${id} button`).forEach(x=>x.classList.remove('on'));b.classList.add('on');$('#live').hidden=document.querySelector('#cm .on').dataset.v!=='live'})};grp('cp');grp('cm');
+  $('#cgo').onclick=async()=>{try{$('#cgo').disabled=true;await api('/accounts',{method:'POST',body:{platform:document.querySelector('#cp .on').dataset.v,mode:document.querySelector('#cm .on').dataset.v,label:$('#cl').value,token:$('#ct').value}});closeModal();load()}catch(e){$('#cerr').textContent=e.message;$('#cgo').disabled=false}}}
+const simulate=async(id,status)=>{await api(`/accounts/${id}/simulate`,{method:'POST',body:{status}});load()};
+const reconnect=async id=>{await api(`/accounts/${id}/reconnect`,{method:'POST'});load()};
+const removeAcc=async id=>{if(confirm('Remove this account and detach it from monitors?')){await api('/accounts/'+id,{method:'DELETE'});load()}};
+
+/* ---------- Monitors ---------- */
+function rMon(){$('#main').innerHTML=`<div class="row"><div><h1>Monitors</h1><p class="sub">Describe a lead in plain English. One monitor can watch Slack and Discord together.</p></div><div class="sp"></div><button class="btn pri" onclick="wizard()">+ New monitor</button></div>
+${S.monitors.length?`<div class="grid">${S.monitors.map(m=>`<div class="card"><div class="row"><b>${esc(m.name)}</b><div class="sp"></div>${pill(m.status,m.status==='listening'?'Listening':m.status)}</div><p class="mut small">${esc(m.criteria?.summary||m.description)}</p>
+<div class="row small mut"><span>${m.targets.length} channels</span><span>·</span><span>${m.matches} matches</span></div>
+<div class="row" style="margin-top:12px">${m.status==='listening'?`<button class="btn sm" onclick="act('${m.id}','pause')">Pause</button>`:m.criteria&&m.targets.length?`<button class="btn sm pri" onclick="act('${m.id}','deploy')">Deploy</button>`:`<button class="btn sm" onclick="wizard('${m.id}')">Finish setup</button>`}<button class="btn sm" onclick="wizard('${m.id}')">Edit / test</button><div class="sp"></div><button class="btn sm danger" onclick="delMon('${m.id}')">Delete</button></div></div>`).join('')}</div>`:`<div class="empty">No monitors yet. Create one to start catching leads.</div>`}`}
+const act=async(id,a)=>{try{await api(`/monitors/${id}/${a}`,{method:'POST'});load()}catch(e){toast(esc(e.message))}};
+const delMon=async id=>{if(confirm('Delete this monitor?')){await api('/monitors/'+id,{method:'DELETE'});load()}};
+
+const W={step:0,mon:null,questions:[],answers:{},targets:[]};
+async function wizard(id){W.step=id?2:0;W.mon=id?S.monitors.find(m=>m.id===id):null;W.answers={};W.targets=W.mon?[...W.mon.targets]:[];W.cache={};wstep()}
+const steps=n=>`<div class="steps">${[0,1,2,3].map(i=>`<i class="${i<=n?'on':''}"></i>`).join('')}</div>`;
+function wstep(){
+  if(W.step===0)return modal(`${steps(0)}<h2 style="margin:0 0 4px">What are you looking for?</h2><p class="mut">Plain English. Example: <i>people requesting LinkedIn account rentals for outbound that are US ID verified</i></p><textarea id="wd" placeholder="Describe the lead…"></textarea><p id="werr" class="small" style="color:var(--bad)"></p><div class="row"><div class="sp"></div><button class="btn" onclick="closeModal()">Cancel</button><button class="btn pri" onclick="w0()">Continue</button></div>`);
+  if(W.step===1)return modal(`${steps(1)}<h2 style="margin:0 0 4px">A few quick questions</h2><p class="mut">So the filter is exactly right.</p>${W.questions.map(q=>`<label class="f">${esc(q.q)}</label><div class="opt" data-q="${q.id}">${q.options.map((o,i)=>`<button class="${(W.answers[q.id]===undefined?i===0:W.answers[q.id]===o.value)?'on':''}" data-v='${JSON.stringify(o.value)}'>${esc(o.label)}</button>`).join('')}</div>`).join('')}<div class="row" style="margin-top:22px"><div class="sp"></div><button class="btn pri" onclick="w1()">Confirm understanding</button></div>`),
+    document.querySelectorAll('.opt[data-q] button').forEach(b=>b.onclick=()=>{b.parentElement.querySelectorAll('button').forEach(x=>x.classList.remove('on'));b.classList.add('on')});
+  if(W.step===2)return modal(`${steps(2)}<h2 style="margin:0 0 4px">Here's what I understood</h2><div class="verdict y" style="margin-bottom:6px">${esc(W.mon.criteria?.summary||'')}</div>
+  <label class="f">Test it — paste a real message</label><textarea id="wt" placeholder="Paste a message…"></textarea><div class="row" style="margin-top:8px"><button class="btn" onclick="wtest()">Run test</button><button class="btn" onclick="wreplay()">Replay against history</button></div><div id="wres"></div>
+  <div class="row" style="margin-top:22px"><div class="sp"></div><button class="btn pri" onclick="w2()">Choose where to listen →</button></div>`);
+  if(W.step===3)return wTargets();
+}
+async function w0(){try{const d=$('#wd').value;const r=await api('/monitors',{method:'POST',body:{description:d}});W.mon=r.monitor;W.questions=r.questions;W.step=1;wstep()}catch(e){$('#werr').textContent=e.message}}
+async function w1(){const answers={};document.querySelectorAll('.opt[data-q]').forEach(g=>answers[g.dataset.q]=JSON.parse(g.querySelector('.on').dataset.v));W.mon=await api(`/monitors/${W.mon.id}/confirm`,{method:'POST',body:{answers}});W.step=2;wstep()}
+async function wtest(){const t=$('#wt').value.trim();if(!t)return;$('#wres').innerHTML='<p class="mut">Testing…</p>';const v=await api(`/monitors/${W.mon.id}/test`,{method:'POST',body:{text:t}});$('#wres').innerHTML=`<div class="verdict ${v.match?'y':'n'}"><b>${v.match?'✅ Match':'❌ No match'}</b> — ${esc(v.reason)}</div>`}
+async function wreplay(){$('#wres').innerHTML='<p class="mut">Replaying…</p>';const r=await api(`/monitors/${W.mon.id}/replay`,{method:'POST'});$('#wres').innerHTML=`<div class="verdict y"><b>${r.matches} of ${r.scanned} past messages would have matched</b></div>${r.results.slice(0,4).map(x=>`<div class="alert"><div class="small mut">${esc(x.message.workspace)} #${esc(x.message.channel)} · ${esc(x.message.author.name)}</div><div class="msg">${esc(x.message.text)}</div><div class="why">${esc(x.reason)}</div></div>`).join('')}`}
+async function w2(){W.step=3;wstep()}
+async function wTargets(){
+  modal(`${steps(3)}<h2 style="margin:0 0 4px">Choose where to listen</h2><p class="mut">Pick channels across any account — Slack and Discord together.</p><div id="tp" class="mut">Loading…</div><div class="row" style="margin-top:20px"><span class="mut small" id="tc"></span><div class="sp"></div><button class="btn" onclick="wsave(false)">Save</button><button class="btn pri" onclick="wsave(true)">Save &amp; deploy</button></div><p id="terr" class="small" style="color:var(--bad)"></p>`);
+  const out=[];for(const a of S.accounts){let ws=[];try{ws=await api(`/accounts/${a.id}/workspaces`)}catch{}
+    out.push(`<div class="card" style="margin-bottom:12px"><div class="row"><div class="plat ${a.platform}">${a.platform==='slack'?'S':'D'}</div><b>${esc(a.label)}</b></div>${ws.map(w=>`<div class="ws" onclick="tch('${a.id}','${esc(w.id)}','${esc(w.name).replace(/'/g,'')}')"><span class="ic">${esc(w.icon)}</span><div><b>${esc(w.name)}</b><div class="mut small">${w.members.toLocaleString()} members</div></div></div><div id="tc-${a.id}-${esc(w.id)}"></div>`).join('')}</div>`)}
+  $('#tp').innerHTML=out.join('')||'<div class="empty">Connect an account first.</div>';tcount()}
+const tkey=t=>t.accountId+'|'+t.workspaceId+'|'+t.channelId;
+async function tch(aid,wid,wname){const box=document.getElementById(`tc-${aid}-${wid}`);if(box.innerHTML){box.innerHTML='';return}
+  const cs=await api(`/accounts/${aid}/workspaces/${wid}/channels`);
+  box.innerHTML=`<div class="chlist">${cs.map(c=>{const t={accountId:aid,workspaceId:wid,channelId:c.id,label:`${wname} #${c.name}`};return`<label class="ch"><input type="checkbox" ${W.targets.some(x=>tkey(x)===tkey(t))?'checked':''} data-t='${esc(JSON.stringify(t))}'> #${esc(c.name)}<div class="sp"></div><span class="mut small">${c.members?c.members.toLocaleString():''}</span></label>`}).join('')}</div>`;
+  box.querySelectorAll('input').forEach(i=>i.onchange=()=>{const t=JSON.parse(i.dataset.t);W.targets=W.targets.filter(x=>tkey(x)!==tkey(t));if(i.checked)W.targets.push(t);tcount()})}
+const tcount=()=>{const e=$('#tc');if(e)e.textContent=`${W.targets.length} channel${W.targets.length===1?'':'s'} selected`};
+async function wsave(deploy){try{await api(`/monitors/${W.mon.id}/targets`,{method:'PUT',body:{targets:W.targets}});if(deploy)await api(`/monitors/${W.mon.id}/deploy`,{method:'POST'});closeModal();S.view='monitors';load();if(deploy)toast('🟢 Monitor is now <b>Listening</b>')}catch(e){$('#terr').textContent=e.message}}
+
+/* ---------- Alerts ---------- */
+function rAlerts(){
+  const tabs=[['','All'],['new','New'],['read','Read'],['contacted','Contacted'],['bad_match','Wrong match']];
+  $('#main').innerHTML=`<div class="row"><div><h1>Alerts</h1><p class="sub">Matching messages from every watched channel, in real time.</p></div><div class="sp"></div><a class="btn" href="/api/alerts.csv" download>Export CSV</a></div>${statsBar()}
+  <div class="tabs">${tabs.map(([v,l])=>`<button class="${S.filter===v?'on':''}" onclick="S.filter='${v}';load()">${l}</button>`).join('')}</div>
+  <div id="alist">${S.alerts.length?S.alerts.map(alertCard).join(''):`<div class="empty">No alerts${S.filter?' in this view':' yet — deploy a monitor and they appear here within seconds'}.</div>`}</div>`}
+const alertCard=a=>{const m=a.message;return`<div class="alert ${a.status}" id="al-${a.id}"><div class="row"><div class="plat ${m.source}">${m.source==='slack'?'S':'D'}</div><div><b>${esc(m.author.name)}</b> <span class="mut">in ${esc(m.workspace)} #${esc(m.channel)}</span><div class="mut small">${esc(a.monitorName)} · ${ago(m.ts)}</div></div><div class="sp"></div>${pill(a.status==='new'?'degraded':a.status,a.status==='new'?'New':a.status.replace('_',' '))}</div>
+<div class="msg">${esc(m.text)}</div><div class="why">✓ ${esc(a.reason)}</div>
+${a.replies.map(r=>`<div class="mut small" style="margin-top:6px">↳ You: ${esc(r.text)}</div>`).join('')}
+<div class="row" style="margin-top:12px"><a class="btn sm" href="${esc(m.permalink)}" target="_blank" rel="noopener noreferrer">Open in ${m.source==='slack'?'Slack':'Discord'}</a><button class="btn sm" onclick="setS('${a.id}','read')">Mark read</button><button class="btn sm" onclick="setS('${a.id}','contacted')">Contacted</button><button class="btn sm danger" onclick="setS('${a.id}','bad_match')">Shouldn't have passed</button><div class="sp"></div><button class="btn sm pri" onclick="replyBox('${a.id}')">Message ${esc(m.author.name.split(' ')[0])}</button></div><div id="rb-${a.id}"></div></div>`};
+const setS=async(id,s)=>{await api('/alerts/'+id,{method:'PATCH',body:{status:s}});load()};
+function replyBox(id){const b=$('#rb-'+id);b.innerHTML=`<div style="margin-top:10px"><textarea id="rt-${id}" placeholder="Write a message — sent manually, as you"></textarea><div class="row" style="margin-top:8px"><label class="small mut"><input type="checkbox" id="rd-${id}" checked> Send as DM</label><div class="sp"></div><button class="btn sm pri" onclick="sendReply('${id}')">Send</button></div></div>`}
+async function sendReply(id){try{await api(`/alerts/${id}/reply`,{method:'POST',body:{text:$('#rt-'+id).value,dm:$('#rd-'+id).checked}});toast('Message sent');load()}catch(e){toast(esc(e.message))}}
+
+/* ---------- live ---------- */
+const es=new EventSource('/api/events');
+es.addEventListener('alert',e=>{const a=JSON.parse(e.data);toast(`🎯 <b>${esc(a.message.author.name)}</b> · ${esc(a.message.workspace)} #${esc(a.message.channel)}<div class="mut small">${esc(a.message.text.slice(0,110))}</div>`);load()});
+['account','account_removed','monitor','alert_updated'].forEach(ev=>es.addEventListener(ev,()=>{if(!$('#modal').classList.contains('show'))load()}));
+load();
+</script>
+</body>
+</html>
