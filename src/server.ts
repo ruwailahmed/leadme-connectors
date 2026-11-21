@@ -3,7 +3,8 @@ import { readFile } from 'node:fs/promises';
 import { extname } from 'node:path';
 import { execFile, spawn } from 'node:child_process';
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
-import { db, save, uid } from './store.ts';
+import { createHmac, timingSafeEqual } from 'node:crypto';
+import { db, save, uid, DATA_DIR } from './store.ts';
 import { buildCriteria, classify, questionsFor } from './classifier.ts';
 import { demoAdapter, demoMessage } from './adapters/demo.ts';
 import { slackAdapter } from './adapters/slack.ts';
@@ -189,7 +190,7 @@ route('GET', '/api/alerts.csv', () => {
 });
 
 // ---------- AI connection: sign in with Claude (subscription) or paste a key ----------
-const SECRET = new URL('../data/secret.json', import.meta.url).pathname;
+const SECRET = `${DATA_DIR}/secret.json`;
 if (!process.env.ANTHROPIC_API_KEY && existsSync(SECRET)) { try { process.env.ANTHROPIC_API_KEY = JSON.parse(readFileSync(SECRET, 'utf8')).key; } catch { /* ignore */ } }
 let loginProc: ReturnType<typeof spawn> | undefined;
 const cli = (args: string[]) => new Promise<string>(res => execFile('claude', args, { timeout: 15000 }, (_e, out) => res(String(out ?? ''))));
@@ -209,7 +210,7 @@ route('POST', '/api/ai/login', () => {
 route('POST', '/api/ai/key', ({ body }) => {
   const key = String(body.key ?? '').trim();
   if (!/^sk-ant-[\w-]{20,}$/.test(key)) throw bad('that does not look like an Anthropic API key');
-  process.env.ANTHROPIC_API_KEY = key; mkdirSync(new URL('../data', import.meta.url).pathname, { recursive: true }); writeFileSync(SECRET, JSON.stringify({ key }), { mode: 0o600 });
+  process.env.ANTHROPIC_API_KEY = key; mkdirSync(DATA_DIR, { recursive: true }); writeFileSync(SECRET, JSON.stringify({ key }), { mode: 0o600 });
   return aiStatus();
 });
 route('DELETE', '/api/ai/key', () => { delete process.env.ANTHROPIC_API_KEY; try { writeFileSync(SECRET, '{}', { mode: 0o600 }); } catch { /* ignore */ } return aiStatus(); });
@@ -269,6 +270,15 @@ route('GET', '/api/discord/invite', () => {
   return { url: `https://discord.com/oauth2/authorize?client_id=${process.env.DISCORD_CLIENT_ID}&scope=bot&permissions=66560` };
 });
 
+
+// ---------- password gate (set APP_PASSWORD to protect the console) ----------
+const PASS = process.env.APP_PASSWORD;
+const token = () => createHmac('sha256', PASS ?? '').update('leadme-session').digest('hex');
+const eq = (a: string, b: string) => a.length === b.length && timingSafeEqual(Buffer.from(a), Buffer.from(b));
+const authed = (req: IncomingMessage) => !PASS || eq(/(?:^|;\s*)lm=([a-f0-9]+)/.exec(req.headers.cookie ?? '')?.[1] ?? '', token());
+const attempts = new Map<string, { n: number; at: number }>();
+const LOGIN = (err = '') => `<!doctype html><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1"><title>leadme — sign in</title><style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#0b0d12;color:#e8ebf2;font:15px system-ui,sans-serif}form{background:#12151c;border:1px solid #232938;border-radius:16px;padding:28px;width:min(340px,90vw)}h1{margin:0 0 16px;font-size:20px}input,button{width:100%;padding:11px;border-radius:9px;border:1px solid #232938;font:inherit;margin-top:10px;background:#171b24;color:inherit}button{background:linear-gradient(135deg,#7c8cff,#a78bfa);border:0;color:#fff;font-weight:600;cursor:pointer}p{color:#f87171;margin:8px 0 0}</style><form method=post action=/login><h1>leadme</h1><input type=password name=password placeholder=Password autofocus autocomplete=current-password><button>Sign in</button>${err ? `<p>${err}</p>` : ''}</form>`;
+
 const MIME: Record<string, string> = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml' };
 async function readBody(req: IncomingMessage) {
   let size = 0; const chunks: Buffer[] = [];
@@ -279,6 +289,25 @@ async function readBody(req: IncomingMessage) {
 createServer(async (req, res) => {
   const url = new URL(req.url ?? '/', 'http://localhost');
   try {
+    if (url.pathname === '/healthz') { res.writeHead(200); return void res.end('ok'); }
+    if (PASS && url.pathname === '/login') {
+      if (req.method === 'POST') {
+        const ip = String(req.headers['x-forwarded-for'] ?? req.socket.remoteAddress ?? '').split(',')[0].trim();
+        const at = attempts.get(ip); if (at && Date.now() - at.at < 60_000 && at.n >= 8) { res.writeHead(429, { 'content-type': 'text/html' }); return void res.end(LOGIN('Too many attempts, wait a minute.')); }
+        const given = new URLSearchParams(Buffer.concat(await (async () => { const c: Buffer[] = []; let n = 0; for await (const x of req) { n += x.length; if (n > 2000) break; c.push(x as Buffer); } return c; })()).toString()).get('password') ?? '';
+        if (eq(createHmac('sha256', 'p').update(given).digest('hex'), createHmac('sha256', 'p').update(PASS).digest('hex'))) {
+          attempts.delete(ip);
+          res.writeHead(302, { location: '/', 'set-cookie': `lm=${token()}; HttpOnly; SameSite=Lax; Path=/; Max-Age=2592000${(process.env.PUBLIC_URL ?? '').startsWith('https') ? '; Secure' : ''}` }); return void res.end();
+        }
+        attempts.set(ip, { n: (at && Date.now() - at.at < 60_000 ? at.n : 0) + 1, at: Date.now() });
+        res.writeHead(401, { 'content-type': 'text/html' }); return void res.end(LOGIN('Wrong password.'));
+      }
+      res.writeHead(200, { 'content-type': 'text/html' }); return void res.end(LOGIN());
+    }
+    if (!authed(req)) {
+      if (url.pathname.startsWith('/api/')) { res.writeHead(401, { 'content-type': 'application/json' }); return void res.end('{"error":"sign in required"}'); }
+      res.writeHead(302, { location: '/login' }); return void res.end();
+    }
     if (url.pathname === '/api/events') {
       res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', connection: 'keep-alive' });
       res.write('retry: 2000\n\n'); clients.add(res); req.on('close', () => clients.delete(res)); return;
@@ -306,4 +335,4 @@ createServer(async (req, res) => {
     res.writeHead(e.status ?? 500, { 'content-type': 'application/json' }); res.end(JSON.stringify({ error: e.status ? e.message : 'internal error' }));
     if (!e.status) console.error(e);
   }
-}).listen(PORT, () => console.log(`leadme connectors → http://localhost:${PORT}`));
+}).listen(PORT, '0.0.0.0', () => console.log(`leadme connectors → http://localhost:${PORT}`));

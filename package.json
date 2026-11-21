@@ -1,7 +1,7 @@
 {
   "name": "leadme-connectors",
   "version": "1.0.0",
-  "description": "Slack + Discord source connectors for leadme — connect accounts, pick workspaces/channels, attach monitors, get alerts.",
+  "description": "Slack + Discord source connectors for leadme \u2014 connect accounts, pick workspaces/channels, attach monitors, get alerts.",
   "type": "module",
   "private": true,
   "scripts": {
@@ -9,5 +9,7 @@
     "dev": "node --watch src/server.ts",
     "test": "node --test src/*.test.ts"
   },
-  "engines": { "node": ">=22.18" }
+  "engines": {
+    "node": ">=22.18"
+  }
 }
