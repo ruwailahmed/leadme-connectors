@@ -4,7 +4,7 @@ import { extname } from 'node:path';
 import { execFile, spawn } from 'node:child_process';
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
 import { createHmac, timingSafeEqual } from 'node:crypto';
-import { db, save, uid, DATA_DIR } from './store.ts';
+import { db, save, uid, DATA_DIR, hydrate, flush, remote, serverless, CAP } from './store.ts';
 import { buildCriteria, classify, questionsFor } from './classifier.ts';
 import { demoAdapter, demoMessage } from './adapters/demo.ts';
 import { slackAdapter } from './adapters/slack.ts';
@@ -37,20 +37,20 @@ async function outbound(alert: Alert) {
 async function handleMessage(msg: NormalizedMessage) {
   if (seen.has(msg.id)) return;
   seen.add(msg.id); if (seen.size > 20000) seen.delete(seen.values().next().value!);
-  db.history.push(msg); if (db.history.length > 1500) db.history.splice(0, db.history.length - 1500);
+  db.history.push(msg); if (db.history.length > CAP.history) db.history.splice(0, db.history.length - CAP.history);
   for (const mon of db.monitors) {
     if (mon.status !== 'listening' || !mon.criteria) continue;
     if (!mon.targets.some(t => t.accountId === msg.accountId && t.channelId === msg.channelId && t.workspaceId === msg.workspaceId)) continue;
     const v = await classify(mon.description, mon.criteria, msg);
     if (!v.match) continue;
     const alert: Alert = { id: uid('al'), monitorId: mon.id, monitorName: mon.name, message: msg, reason: v.reason, status: 'new', createdAt: Date.now(), replies: [] };
-    mon.matches++; db.alerts.unshift(alert); if (db.alerts.length > 2000) db.alerts.pop();
+    mon.matches++; db.alerts.unshift(alert); if (db.alerts.length > CAP.alerts) db.alerts.length = CAP.alerts;
     emit('alert', alert); void outbound(alert);
   }
   save();
 }
 
-const sinceByAccount = new Map<string, number>();
+const sinceByAccount = { get: (k: string) => db.cursors[k], set: (k: string, v: number) => { db.cursors[k] = v; } };
 const failures = new Map<string, number>();
 const lastRun = new Map<string, number>();
 async function tick() {
@@ -75,7 +75,7 @@ async function tick() {
     }
   }
 }
-setInterval(() => tick().catch(e => console.error('tick', e)), 1000);
+if (!serverless) setInterval(() => tick().catch(e => console.error('tick', e)), 1000);
 
 function seedHistory(a: Account, t: Target) {
   if (a.mode !== 'demo') return;
@@ -220,11 +220,11 @@ route('GET', '/api/stats', () => ({
   listening: db.monitors.filter(m => m.status === 'listening').length,
   channels: new Set(db.monitors.filter(m => m.status === 'listening').flatMap(m => m.targets.map(t => t.accountId + t.channelId))).size,
   alerts: db.alerts.length, unread: db.alerts.filter(a => a.status === 'new').length,
-  ai: process.env.CLASSIFIER === 'rules' && !process.env.ANTHROPIC_API_KEY ? 'rules' : 'llm',
+  sse: !serverless, persistent: !serverless || remote, ai: (process.env.CLASSIFIER === 'rules' || serverless) && !process.env.ANTHROPIC_API_KEY ? 'rules' : 'llm',
 }));
 
 // ---------- OAuth: official "Connect" buttons (no cookie/token copying) ----------
-const BASE_URL = () => process.env.PUBLIC_URL ?? `http://localhost:${PORT}`;
+const BASE_URL = () => process.env.PUBLIC_URL ?? (process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : null) ?? `http://localhost:${PORT}`;
 const oauthCfg = () => ({
   slack: !!(process.env.SLACK_CLIENT_ID && process.env.SLACK_CLIENT_SECRET),
   discord: !!(process.env.DISCORD_CLIENT_ID && process.env.DISCORD_CLIENT_SECRET),
@@ -286,9 +286,15 @@ async function readBody(req: IncomingMessage) {
   return chunks.length ? JSON.parse(Buffer.concat(chunks).toString() || '{}') : {};
 }
 
-createServer(async (req, res) => {
+export const handler = async (req: IncomingMessage, res: ServerResponse) => {
   const url = new URL(req.url ?? '/', 'http://localhost');
   try {
+    if (serverless && (url.pathname.startsWith('/api/') || url.pathname.startsWith('/oauth/'))) {
+      const end = res.end.bind(res) as (...a: any[]) => ServerResponse;
+      (res as any).end = (...a: any[]) => { flush().catch(e => console.error('flush', e)).finally(() => end(...a)); return res; };
+      await hydrate();
+      if (url.pathname !== '/api/events') await tick().catch(e => console.error('tick', e));
+    }
     if (url.pathname === '/healthz') { res.writeHead(200); return void res.end('ok'); }
     if (PASS && url.pathname === '/login') {
       if (req.method === 'POST') {
@@ -297,7 +303,7 @@ createServer(async (req, res) => {
         const given = new URLSearchParams(Buffer.concat(await (async () => { const c: Buffer[] = []; let n = 0; for await (const x of req) { n += x.length; if (n > 2000) break; c.push(x as Buffer); } return c; })()).toString()).get('password') ?? '';
         if (eq(createHmac('sha256', 'p').update(given).digest('hex'), createHmac('sha256', 'p').update(PASS).digest('hex'))) {
           attempts.delete(ip);
-          res.writeHead(302, { location: '/', 'set-cookie': `lm=${token()}; HttpOnly; SameSite=Lax; Path=/; Max-Age=2592000${(process.env.PUBLIC_URL ?? '').startsWith('https') ? '; Secure' : ''}` }); return void res.end();
+          res.writeHead(302, { location: '/', 'set-cookie': `lm=${token()}; HttpOnly; SameSite=Lax; Path=/; Max-Age=2592000${(process.env.PUBLIC_URL ?? process.env.VERCEL_PROJECT_PRODUCTION_URL ?? '').startsWith('https') || serverless ? '; Secure' : ''}` }); return void res.end();
         }
         attempts.set(ip, { n: (at && Date.now() - at.at < 60_000 ? at.n : 0) + 1, at: Date.now() });
         res.writeHead(401, { 'content-type': 'text/html' }); return void res.end(LOGIN('Wrong password.'));
@@ -308,6 +314,7 @@ createServer(async (req, res) => {
       if (url.pathname.startsWith('/api/')) { res.writeHead(401, { 'content-type': 'application/json' }); return void res.end('{"error":"sign in required"}'); }
       res.writeHead(302, { location: '/login' }); return void res.end();
     }
+    if (url.pathname === '/api/events' && serverless) { res.writeHead(204); return void res.end(); }
     if (url.pathname === '/api/events') {
       res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', connection: 'keep-alive' });
       res.write('retry: 2000\n\n'); clients.add(res); req.on('close', () => clients.delete(res)); return;
@@ -335,4 +342,6 @@ createServer(async (req, res) => {
     res.writeHead(e.status ?? 500, { 'content-type': 'application/json' }); res.end(JSON.stringify({ error: e.status ? e.message : 'internal error' }));
     if (!e.status) console.error(e);
   }
-}).listen(PORT, '0.0.0.0', () => console.log(`leadme connectors → http://localhost:${PORT}`));
+};
+export default handler;
+if (!serverless) createServer(handler).listen(PORT, '0.0.0.0', () => console.log(`leadme connectors → http://localhost:${PORT}`));

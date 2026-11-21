@@ -1,4 +1,5 @@
-data/db.json
+data/
 node_modules
 .env
-data/secret.json
+.vercel
+api/index.js

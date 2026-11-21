@@ -79,7 +79,7 @@ function modal(html){$('#sheet').innerHTML=html;$('#modal').classList.add('show'
 function closeModal(){$('#modal').classList.remove('show')}
 $('#modal').addEventListener('mousedown',e=>{if(e.target.id==='modal')closeModal()});
 
-async function load(){
+let load=async function load(){
   [S.accounts,S.monitors,S.alerts,S.stats]=await Promise.all([api('/accounts'),api('/monitors'),api('/alerts'+(S.filter?`?status=${S.filter}`:'')),api('/stats')]);
   $('#unread').hidden=!S.stats.unread;$('#unread').textContent=S.stats.unread;
   api('/ai').then(a=>{$('#engine').textContent=a.connected?`● AI: ${a.method}${a.plan?' ('+a.plan+')':''}`:'○ AI not connected — set up'}).catch(()=>{});
@@ -192,9 +192,11 @@ async function aiModal(){const a=await api('/ai');
 }
 
 /* ---------- live ---------- */
-const es=new EventSource('/api/events');
-es.addEventListener('alert',e=>{const a=JSON.parse(e.data);toast(`🎯 <b>${esc(a.message.author.name)}</b> · ${esc(a.message.workspace)} #${esc(a.message.channel)}<div class="mut small">${esc(a.message.text.slice(0,110))}</div>`);load()});
-['account','account_removed','monitor','alert_updated'].forEach(ev=>es.addEventListener(ev,()=>{if(!$('#modal').classList.contains('show'))load()}));
+let lastTop=null;
+function maybeToast(){const a=S.alerts[0];if(lastTop!==null&&a&&a.id!==lastTop&&a.status==='new')toast(`🎯 <b>${esc(a.message.author.name)}</b> · ${esc(a.message.workspace)} #${esc(a.message.channel)}<div class="mut small">${esc(a.message.text.slice(0,110))}</div>`);if(a)lastTop=a.id;else if(lastTop===null)lastTop='';}
+const _load=load;load=async function(){await _load();maybeToast()};
+api('/stats').then(st=>{if(st.sse){const es=new EventSource('/api/events');['alert','account','account_removed','monitor','alert_updated'].forEach(ev=>es.addEventListener(ev,()=>{if(!$('#modal').classList.contains('show')&&!document.activeElement?.matches('textarea,input'))load()}))}});
+setInterval(()=>{if(!document.hidden&&!$('#modal').classList.contains('show')&&!document.activeElement?.matches('textarea,input'))load()},5000);
 const qp=new URLSearchParams(location.search);if(qp.get('connected')){setTimeout(()=>toast('✅ Connected '+esc(qp.get('connected'))+'. Pick your workspaces below.'),400)}if(qp.get('oauth')==='failed'){setTimeout(()=>toast('Sign-in did not complete. Try again.'),400)}if(qp.size)history.replaceState({},'','/');
 load();
 </script>
