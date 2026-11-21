@@ -17,7 +17,7 @@ npm test
 | Alerts | Real-time (SSE) inbox: workspace, channel, person, message, why it matched, deep link. Read / Contacted / "shouldn't have passed", CSV export |
 | Reply | Manual only, from the alert (DM or channel), max 3 per lead |
 | Push-out | `DISCORD_ALERT_WEBHOOK`, `SLACK_ALERT_WEBHOOK`, and `LEADME_WEBHOOK_URL` (normalized `message.received` event for the leadme app) |
-| Classifier | Rule engine by default. Set `ANTHROPIC_API_KEY` and an LLM judges candidates that pass the cheap topic pre-filter (`CLASSIFIER_MODEL` to override) |
+| Classifier | Rule engine pre-filters, then Claude judges the candidates through the logged-in Claude Code subscription (`claude -p`, no API key, ~10 s per call, 2 at a time, falls back to rules). `ANTHROPIC_API_KEY` switches to the API; `CLASSIFIER=rules` turns the AI off |
 
 ## Modes
 - **Demo** — seeded with the workspaces from the walkthrough (GTMCafe, Unipile, Clay, TTG, Websets; Discord servers) and a simulated message stream. Needs nothing.

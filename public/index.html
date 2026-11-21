@@ -61,7 +61,7 @@ label.f{display:block;font-weight:600;margin:14px 0 6px}
     <button class="nav on" data-v="connections">Connections</button>
     <button class="nav" data-v="monitors">Monitors</button>
     <button class="nav" data-v="alerts">Alerts <span class="badge" id="unread" hidden>0</span></button>
-    <div class="sidefoot"><span id="engine"></span><br>Read-only listening · manual replies</div>
+    <div class="sidefoot"><button class="btn sm" id="engine" onclick="aiModal()" style="width:100%;text-align:left"></button><br>Read-only listening · manual replies</div>
   </aside>
   <main id="main"></main>
 </div>
@@ -82,7 +82,7 @@ $('#modal').addEventListener('mousedown',e=>{if(e.target.id==='modal')closeModal
 async function load(){
   [S.accounts,S.monitors,S.alerts,S.stats]=await Promise.all([api('/accounts'),api('/monitors'),api('/alerts'+(S.filter?`?status=${S.filter}`:'')),api('/stats')]);
   $('#unread').hidden=!S.stats.unread;$('#unread').textContent=S.stats.unread;
-  $('#engine').textContent=S.stats.ai==='llm'?'● AI classifier on':'● Rule classifier on';
+  api('/ai').then(a=>{$('#engine').textContent=a.connected?`● AI: ${a.method}${a.plan?' ('+a.plan+')':''}`:'○ AI not connected — set up'}).catch(()=>{});
   render();
 }
 function render(){document.querySelectorAll('.nav').forEach(n=>n.classList.toggle('on',n.dataset.v===S.view));({connections:rConn,monitors:rMon,alerts:rAlerts})[S.view]()}
@@ -173,6 +173,20 @@ ${a.replies.map(r=>`<div class="mut small" style="margin-top:6px">↳ You: ${esc
 const setS=async(id,s)=>{await api('/alerts/'+id,{method:'PATCH',body:{status:s}});load()};
 function replyBox(id){const b=$('#rb-'+id);b.innerHTML=`<div style="margin-top:10px"><textarea id="rt-${id}" placeholder="Write a message — sent manually, as you"></textarea><div class="row" style="margin-top:8px"><label class="small mut"><input type="checkbox" id="rd-${id}" checked> Send as DM</label><div class="sp"></div><button class="btn sm pri" onclick="sendReply('${id}')">Send</button></div></div>`}
 async function sendReply(id){try{await api(`/alerts/${id}/reply`,{method:'POST',body:{text:$('#rt-'+id).value,dm:$('#rd-'+id).checked}});toast('Message sent');load()}catch(e){toast(esc(e.message))}}
+
+
+async function aiModal(){const a=await api('/ai');
+  modal(`<h2 style="margin-top:0">AI connection</h2><p class="mut">Used to judge whether a message really matches a monitor. Without it, the built-in rules are used.</p>
+  <div class="verdict ${a.connected?'y':'n'}"><b>${a.connected?'✅ Connected':'Not connected'}</b>${a.connected?` via ${esc(a.method)}${a.plan?' · '+esc(a.plan)+' plan':''}`:''}</div>
+  ${a.cliMissing?'<p class="small" style="color:var(--bad)">Claude Code CLI not found on this machine, use an API key instead.</p>':''}
+  <label class="f">Sign in with your Claude account</label><p class="mut small" style="margin:0 0 8px">Opens a Claude sign-in window on the machine running this app. Uses your subscription, no key needed.</p>
+  <button class="btn pri" id="aiLogin" ${a.cliMissing?'disabled':''}>${a.connected&&a.method==='Claude subscription'?'Sign in again':'Sign in with Claude'}</button> <span id="aiMsg" class="mut small"></span>
+  <label class="f">Or paste an API key</label><div class="row"><input type="password" id="aiKey" placeholder="sk-ant-…" autocomplete="off" style="flex:1"><button class="btn" id="aiSave">Save</button>${a.method==='API key'?'<button class="btn danger" id="aiDel">Remove</button>':''}</div><p id="aiErr" class="small" style="color:var(--bad)"></p>
+  <div class="row"><div class="sp"></div><button class="btn" onclick="closeModal()">Close</button></div>`);
+  $('#aiLogin').onclick=async()=>{await api('/ai/login',{method:'POST'});$('#aiMsg').textContent='Waiting for you to finish signing in…';const t=setInterval(async()=>{const s=await api('/ai');if(s.connected&&!s.loggingIn){clearInterval(t);load();aiModal()}},2000);setTimeout(()=>clearInterval(t),300000)};
+  $('#aiSave').onclick=async()=>{try{await api('/ai/key',{method:'POST',body:{key:$('#aiKey').value}});load();aiModal()}catch(e){$('#aiErr').textContent=e.message}};
+  if($('#aiDel'))$('#aiDel').onclick=async()=>{await api('/ai/key',{method:'DELETE'});load();aiModal()};
+}
 
 /* ---------- live ---------- */
 const es=new EventSource('/api/events');

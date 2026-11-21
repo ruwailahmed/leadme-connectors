@@ -1,6 +1,8 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { extname } from 'node:path';
+import { execFile, spawn } from 'node:child_process';
+import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
 import { db, save, uid } from './store.ts';
 import { buildCriteria, classify, questionsFor } from './classifier.ts';
 import { demoAdapter, demoMessage } from './adapters/demo.ts';
@@ -185,12 +187,39 @@ route('GET', '/api/alerts.csv', () => {
     ...db.alerts.map(a => [new Date(a.message.ts).toISOString(), a.monitorName, a.message.source, a.message.workspace, a.message.channel, a.message.author.name, a.message.text, a.reason, a.status, a.message.permalink])];
   return { __csv: rows.map(r => r.map(esc).join(',')).join('\n') };
 });
+
+// ---------- AI connection: sign in with Claude (subscription) or paste a key ----------
+const SECRET = new URL('../data/secret.json', import.meta.url).pathname;
+if (!process.env.ANTHROPIC_API_KEY && existsSync(SECRET)) { try { process.env.ANTHROPIC_API_KEY = JSON.parse(readFileSync(SECRET, 'utf8')).key; } catch { /* ignore */ } }
+let loginProc: ReturnType<typeof spawn> | undefined;
+const cli = (args: string[]) => new Promise<string>(res => execFile('claude', args, { timeout: 15000 }, (_e, out) => res(String(out ?? ''))));
+async function aiStatus() {
+  if (process.env.ANTHROPIC_API_KEY) return { connected: true, method: 'API key', plan: null, loggingIn: false };
+  try { const j = JSON.parse(await cli(['auth', 'status'])); return { connected: !!j.loggedIn, method: j.loggedIn ? 'Claude subscription' : null, plan: j.subscriptionType ?? null, loggingIn: !!loginProc }; }
+  catch { return { connected: false, method: null, plan: null, loggingIn: !!loginProc, cliMissing: true }; }
+}
+route('GET', '/api/ai', () => aiStatus());
+route('POST', '/api/ai/login', () => {
+  if (loginProc) return { started: true };
+  loginProc = spawn('claude', ['auth', 'login', '--claudeai'], { stdio: 'ignore' });
+  const done = () => { loginProc = undefined; };
+  loginProc.on('exit', done); loginProc.on('error', done); setTimeout(() => { loginProc?.kill(); }, 300000);
+  return { started: true };
+});
+route('POST', '/api/ai/key', ({ body }) => {
+  const key = String(body.key ?? '').trim();
+  if (!/^sk-ant-[\w-]{20,}$/.test(key)) throw bad('that does not look like an Anthropic API key');
+  process.env.ANTHROPIC_API_KEY = key; mkdirSync(new URL('../data', import.meta.url).pathname, { recursive: true }); writeFileSync(SECRET, JSON.stringify({ key }), { mode: 0o600 });
+  return aiStatus();
+});
+route('DELETE', '/api/ai/key', () => { delete process.env.ANTHROPIC_API_KEY; try { writeFileSync(SECRET, '{}', { mode: 0o600 }); } catch { /* ignore */ } return aiStatus(); });
+
 route('GET', '/api/stats', () => ({
   accounts: db.accounts.length, healthy: db.accounts.filter(a => a.status === 'healthy').length,
   listening: db.monitors.filter(m => m.status === 'listening').length,
   channels: new Set(db.monitors.filter(m => m.status === 'listening').flatMap(m => m.targets.map(t => t.accountId + t.channelId))).size,
   alerts: db.alerts.length, unread: db.alerts.filter(a => a.status === 'new').length,
-  ai: !!process.env.ANTHROPIC_API_KEY ? 'llm' : 'rules',
+  ai: process.env.CLASSIFIER === 'rules' && !process.env.ANTHROPIC_API_KEY ? 'rules' : 'llm',
 }));
 
 const MIME: Record<string, string> = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml' };
