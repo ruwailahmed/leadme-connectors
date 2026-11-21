@@ -171,7 +171,7 @@ route('GET', '/api/alerts', ({ url }) => {
 });
 route('PATCH', '/api/alerts/:id', ({ params, body }) => {
   const a = db.alerts.find(x => x.id === params[0]); if (!a) throw Object.assign(new Error('alert not found'), { status: 404 });
-  if (!['new', 'read', 'contacted', 'bad_match'].includes(body.status)) throw bad('invalid status');
+  if (!['new', 'read', 'contacted', 'bad_match', 'archived'].includes(body.status)) throw bad('invalid status');
   a.status = body.status; save(); emit('alert_updated', a); return a;
 });
 route('POST', '/api/alerts/:id/reply', async ({ params, body }) => {
@@ -225,20 +225,21 @@ route('GET', '/api/stats', () => ({
 
 // ---------- OAuth: official "Connect" buttons (no cookie/token copying) ----------
 const BASE_URL = () => process.env.PUBLIC_URL ?? (process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : null) ?? `http://localhost:${PORT}`;
+const cfg = (k: string) => process.env[k] || db.settings[k] || '';
 const oauthCfg = () => ({
-  slack: !!(process.env.SLACK_CLIENT_ID && process.env.SLACK_CLIENT_SECRET),
-  discord: !!(process.env.DISCORD_CLIENT_ID && process.env.DISCORD_CLIENT_SECRET),
-  discordBot: !!process.env.DISCORD_BOT_TOKEN,
+  slack: !!(cfg('SLACK_CLIENT_ID') && cfg('SLACK_CLIENT_SECRET')),
+  discord: !!(cfg('DISCORD_CLIENT_ID') && cfg('DISCORD_CLIENT_SECRET')),
+  discordBot: !!cfg('DISCORD_BOT_TOKEN'),
 });
 const states = new Map<string, { platform: string; at: number }>();
 const SLACK_SCOPES = 'channels:read,channels:history,users:read,team:read,chat:write,im:write';
 function oauthStart(platform: 'slack' | 'discord', res: ServerResponse) {
-  const cfg = oauthCfg(); if (!cfg[platform]) { res.writeHead(400, { 'content-type': 'text/plain' }); return void res.end(`${platform} OAuth is not configured. See README.`); }
+  const ok = oauthCfg(); if (!ok[platform]) { res.writeHead(400, { 'content-type': 'text/plain' }); return void res.end(`${platform} OAuth is not configured. See README.`); }
   const state = uid('st'); states.set(state, { platform, at: Date.now() });
   const redirect = encodeURIComponent(`${BASE_URL()}/oauth/${platform}/callback`);
   const url = platform === 'slack'
-    ? `https://slack.com/oauth/v2/authorize?client_id=${process.env.SLACK_CLIENT_ID}&user_scope=${SLACK_SCOPES}&redirect_uri=${redirect}&state=${state}`
-    : `https://discord.com/oauth2/authorize?client_id=${process.env.DISCORD_CLIENT_ID}&response_type=code&scope=identify%20guilds&redirect_uri=${redirect}&state=${state}`;
+    ? `https://slack.com/oauth/v2/authorize?client_id=${cfg('SLACK_CLIENT_ID')}&user_scope=${SLACK_SCOPES}&redirect_uri=${redirect}&state=${state}`
+    : `https://discord.com/oauth2/authorize?client_id=${cfg('DISCORD_CLIENT_ID')}&response_type=code&scope=identify%20guilds&redirect_uri=${redirect}&state=${state}`;
   res.writeHead(302, { location: url }); res.end();
 }
 async function oauthCallback(platform: 'slack' | 'discord', url: URL, res: ServerResponse) {
@@ -251,23 +252,28 @@ async function oauthCallback(platform: 'slack' | 'discord', url: URL, res: Serve
     let a: Account;
     if (platform === 'slack') {
       const r = await fetch('https://slack.com/api/oauth.v2.access', { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' },
-        body: new URLSearchParams({ client_id: process.env.SLACK_CLIENT_ID!, client_secret: process.env.SLACK_CLIENT_SECRET!, code, redirect_uri }) });
+        body: new URLSearchParams({ client_id: cfg('SLACK_CLIENT_ID'), client_secret: cfg('SLACK_CLIENT_SECRET'), code, redirect_uri }) });
       const j = await r.json() as any; if (!j.ok || !j.authed_user?.access_token) return back('oauth=failed');
       a = { id: uid('acc'), platform: 'slack', mode: 'live', label: j.team?.name ?? 'Slack', email: j.team?.name ?? 'Slack workspace', token: j.authed_user.access_token, status: 'healthy', createdAt: Date.now() };
     } else {
       const r = await fetch('https://discord.com/api/v10/oauth2/token', { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' },
-        body: new URLSearchParams({ client_id: process.env.DISCORD_CLIENT_ID!, client_secret: process.env.DISCORD_CLIENT_SECRET!, grant_type: 'authorization_code', code, redirect_uri }) });
+        body: new URLSearchParams({ client_id: cfg('DISCORD_CLIENT_ID'), client_secret: cfg('DISCORD_CLIENT_SECRET'), grant_type: 'authorization_code', code, redirect_uri }) });
       const j = await r.json() as any; if (!j.access_token) return back('oauth=failed');
       const me = await (await fetch('https://discord.com/api/v10/users/@me', { headers: { Authorization: `Bearer ${j.access_token}` } })).json() as any;
-      a = { id: uid('acc'), platform: 'discord', mode: 'live', label: me.global_name || me.username || 'Discord', email: me.username ?? 'Discord', token: process.env.DISCORD_BOT_TOKEN, userToken: j.access_token, status: 'healthy', createdAt: Date.now() };
+      a = { id: uid('acc'), platform: 'discord', mode: 'live', label: me.global_name || me.username || 'Discord', email: me.username ?? 'Discord', token: cfg('DISCORD_BOT_TOKEN'), userToken: j.access_token, status: 'healthy', createdAt: Date.now() };
     }
     db.accounts.push(a); save(); emit('account', safeAccount(a)); back(`connected=${platform}`);
   } catch (e: any) { console.error('oauth', platform, e.message); back('oauth=failed'); }
 }
-route('GET', '/api/oauth/config', () => oauthCfg());
+route('GET', '/api/oauth/config', () => ({ ...oauthCfg(), baseUrl: BASE_URL(), slackScopes: SLACK_SCOPES }));
+route('PUT', '/api/oauth/settings', ({ body }) => {
+  const allowed = ['SLACK_CLIENT_ID', 'SLACK_CLIENT_SECRET', 'DISCORD_CLIENT_ID', 'DISCORD_CLIENT_SECRET', 'DISCORD_BOT_TOKEN'];
+  for (const k of allowed) if (typeof body[k] === 'string' && body[k].trim()) db.settings[k] = body[k].trim().slice(0, 300);
+  save(); return oauthCfg();
+});
 route('GET', '/api/discord/invite', () => {
-  if (!process.env.DISCORD_CLIENT_ID) throw bad('Discord is not configured');
-  return { url: `https://discord.com/oauth2/authorize?client_id=${process.env.DISCORD_CLIENT_ID}&scope=bot&permissions=66560` };
+  if (!cfg('DISCORD_CLIENT_ID')) throw bad('Discord is not configured');
+  return { url: `https://discord.com/oauth2/authorize?client_id=${cfg('DISCORD_CLIENT_ID')}&scope=bot&permissions=66560` };
 });
 
 

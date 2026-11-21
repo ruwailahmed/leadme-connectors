@@ -54,7 +54,7 @@ export interface Monitor {
   createdAt: number;
 }
 
-export type AlertStatus = 'new' | 'read' | 'contacted' | 'bad_match';
+export type AlertStatus = 'new' | 'read' | 'contacted' | 'bad_match' | 'archived';
 export interface Alert {
   id: string;
   monitorId: string;
