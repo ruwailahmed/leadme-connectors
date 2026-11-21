@@ -8,6 +8,7 @@ export interface Account {
   label: string;
   email: string;
   token?: string;
+  userToken?: string;
   status: Health;
   statusNote?: string;
   lastSync?: number;

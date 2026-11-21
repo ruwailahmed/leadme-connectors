@@ -2,8 +2,9 @@ import type { Account, Adapter, Channel, NormalizedMessage, Target, Workspace } 
 
 // Read-only polling via Discord's REST API with a bot token. Replies are human-initiated only.
 const BASE = 'https://discord.com/api/v10';
-async function api(a: Account, path: string, init: RequestInit = {}) {
-  const res = await fetch(BASE + path, { ...init, headers: { Authorization: `Bot ${a.token}`, 'Content-Type': 'application/json', ...(init.headers ?? {}) } });
+async function api(a: Account, path: string, init: RequestInit = {}, asUser = false) {
+  const auth = asUser && a.userToken ? `Bearer ${a.userToken}` : `Bot ${a.token}`;
+  const res = await fetch(BASE + path, { ...init, headers: { Authorization: auth, 'Content-Type': 'application/json', ...(init.headers ?? {}) } });
   if (res.status === 429) { const j = await res.json() as any; throw new Error(`rate_limited retry-after=${j.retry_after}`); }
   if (!res.ok) throw new Error(`discord_${res.status}`);
   return res.status === 204 ? null : res.json() as Promise<any>;
@@ -11,9 +12,9 @@ async function api(a: Account, path: string, init: RequestInit = {}) {
 const snowflakeTs = (id: string) => Number((BigInt(id) >> 22n) + 1420070400000n);
 
 export const discordAdapter: Adapter = {
-  async check(a) { const j = await api(a, '/users/@me'); return { ok: true, identity: j.username }; },
+  async check(a) { const j = await api(a, '/users/@me', {}, true); return { ok: true, identity: j.username }; },
   async workspaces(a): Promise<Workspace[]> {
-    const gs = await api(a, '/users/@me/guilds?with_counts=true');
+    const gs = await api(a, '/users/@me/guilds?with_counts=true', {}, true);
     return gs.map((g: any) => ({ id: g.id, name: g.name, members: g.approximate_member_count ?? 0, icon: '🎮' }));
   },
   async channels(a, gid): Promise<Channel[]> {

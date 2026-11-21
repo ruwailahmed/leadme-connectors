@@ -110,7 +110,10 @@ async function browse(id,toggle){
 }
 async function chans(id,wid,el){const box=document.getElementById(`ch-${id}-${wid}`);if(box.innerHTML){box.innerHTML='';return}
   try{const cs=await api(`/accounts/${id}/workspaces/${wid}/channels`);box.innerHTML=`<div class="chlist">${cs.map(c=>`<div class="ch"><span class="mut">#</span>${esc(c.name)}<div class="sp"></div><span class="mut small">${c.members?c.members.toLocaleString():''}</span></div>`).join('')}</div>`}catch(e){box.innerHTML=esc(e.message)}}
-function connectModal(){modal(`<h2 style="margin-top:0">Connect account</h2>
+async function connectModal(){const oc=await api('/oauth/config').catch(()=>({}));modal(`<h2 style="margin-top:0">Connect account</h2>
+<div class="row"><button class="btn pri" style="flex:1" onclick="location='/oauth/slack/start'" ${oc.slack?'':'disabled'}>Continue with Slack</button><button class="btn pri" style="flex:1" onclick="location='/oauth/discord/start'" ${oc.discord?'':'disabled'}>Continue with Discord</button></div>
+<p class="mut small">${oc.slack||oc.discord?'You approve access on Slack / Discord itself, then land back here connected. No tokens to copy.':'One-click sign-in needs the Slack/Discord app keys in the server environment (see README). Demo and token modes work meanwhile.'}</p>
+<div class="small mut" style="margin:14px 0 0;border-top:1px solid var(--line);padding-top:12px">Or add one manually</div>
 <label class="f">Platform</label><div class="opt" id="cp"><button class="on" data-v="slack">Slack</button><button data-v="discord">Discord</button></div>
 <label class="f">Mode</label><div class="opt" id="cm"><button class="on" data-v="demo">Demo data</button><button data-v="live">Live (token)</button></div>
 <label class="f">Label</label><input type="text" id="cl" placeholder="e.g. Main Slack">
@@ -192,6 +195,7 @@ async function aiModal(){const a=await api('/ai');
 const es=new EventSource('/api/events');
 es.addEventListener('alert',e=>{const a=JSON.parse(e.data);toast(`🎯 <b>${esc(a.message.author.name)}</b> · ${esc(a.message.workspace)} #${esc(a.message.channel)}<div class="mut small">${esc(a.message.text.slice(0,110))}</div>`);load()});
 ['account','account_removed','monitor','alert_updated'].forEach(ev=>es.addEventListener(ev,()=>{if(!$('#modal').classList.contains('show'))load()}));
+const qp=new URLSearchParams(location.search);if(qp.get('connected')){setTimeout(()=>toast('✅ Connected '+esc(qp.get('connected'))+'. Pick your workspaces below.'),400)}if(qp.get('oauth')==='failed'){setTimeout(()=>toast('Sign-in did not complete. Try again.'),400)}if(qp.size)history.replaceState({},'','/');
 load();
 </script>
 </body>

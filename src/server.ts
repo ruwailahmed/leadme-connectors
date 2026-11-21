@@ -222,6 +222,53 @@ route('GET', '/api/stats', () => ({
   ai: process.env.CLASSIFIER === 'rules' && !process.env.ANTHROPIC_API_KEY ? 'rules' : 'llm',
 }));
 
+// ---------- OAuth: official "Connect" buttons (no cookie/token copying) ----------
+const BASE_URL = () => process.env.PUBLIC_URL ?? `http://localhost:${PORT}`;
+const oauthCfg = () => ({
+  slack: !!(process.env.SLACK_CLIENT_ID && process.env.SLACK_CLIENT_SECRET),
+  discord: !!(process.env.DISCORD_CLIENT_ID && process.env.DISCORD_CLIENT_SECRET),
+  discordBot: !!process.env.DISCORD_BOT_TOKEN,
+});
+const states = new Map<string, { platform: string; at: number }>();
+const SLACK_SCOPES = 'channels:read,channels:history,users:read,team:read,chat:write,im:write';
+function oauthStart(platform: 'slack' | 'discord', res: ServerResponse) {
+  const cfg = oauthCfg(); if (!cfg[platform]) { res.writeHead(400, { 'content-type': 'text/plain' }); return void res.end(`${platform} OAuth is not configured. See README.`); }
+  const state = uid('st'); states.set(state, { platform, at: Date.now() });
+  const redirect = encodeURIComponent(`${BASE_URL()}/oauth/${platform}/callback`);
+  const url = platform === 'slack'
+    ? `https://slack.com/oauth/v2/authorize?client_id=${process.env.SLACK_CLIENT_ID}&user_scope=${SLACK_SCOPES}&redirect_uri=${redirect}&state=${state}`
+    : `https://discord.com/oauth2/authorize?client_id=${process.env.DISCORD_CLIENT_ID}&response_type=code&scope=identify%20guilds&redirect_uri=${redirect}&state=${state}`;
+  res.writeHead(302, { location: url }); res.end();
+}
+async function oauthCallback(platform: 'slack' | 'discord', url: URL, res: ServerResponse) {
+  const st = states.get(url.searchParams.get('state') ?? ''); states.delete(url.searchParams.get('state') ?? '');
+  const code = url.searchParams.get('code');
+  const back = (q: string) => { res.writeHead(302, { location: `/?${q}` }); res.end(); };
+  if (!st || st.platform !== platform || Date.now() - st.at > 600_000 || !code) return back('oauth=failed');
+  const redirect_uri = `${BASE_URL()}/oauth/${platform}/callback`;
+  try {
+    let a: Account;
+    if (platform === 'slack') {
+      const r = await fetch('https://slack.com/api/oauth.v2.access', { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({ client_id: process.env.SLACK_CLIENT_ID!, client_secret: process.env.SLACK_CLIENT_SECRET!, code, redirect_uri }) });
+      const j = await r.json() as any; if (!j.ok || !j.authed_user?.access_token) return back('oauth=failed');
+      a = { id: uid('acc'), platform: 'slack', mode: 'live', label: j.team?.name ?? 'Slack', email: j.team?.name ?? 'Slack workspace', token: j.authed_user.access_token, status: 'healthy', createdAt: Date.now() };
+    } else {
+      const r = await fetch('https://discord.com/api/v10/oauth2/token', { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({ client_id: process.env.DISCORD_CLIENT_ID!, client_secret: process.env.DISCORD_CLIENT_SECRET!, grant_type: 'authorization_code', code, redirect_uri }) });
+      const j = await r.json() as any; if (!j.access_token) return back('oauth=failed');
+      const me = await (await fetch('https://discord.com/api/v10/users/@me', { headers: { Authorization: `Bearer ${j.access_token}` } })).json() as any;
+      a = { id: uid('acc'), platform: 'discord', mode: 'live', label: me.global_name || me.username || 'Discord', email: me.username ?? 'Discord', token: process.env.DISCORD_BOT_TOKEN, userToken: j.access_token, status: 'healthy', createdAt: Date.now() };
+    }
+    db.accounts.push(a); save(); emit('account', safeAccount(a)); back(`connected=${platform}`);
+  } catch (e: any) { console.error('oauth', platform, e.message); back('oauth=failed'); }
+}
+route('GET', '/api/oauth/config', () => oauthCfg());
+route('GET', '/api/discord/invite', () => {
+  if (!process.env.DISCORD_CLIENT_ID) throw bad('Discord is not configured');
+  return { url: `https://discord.com/oauth2/authorize?client_id=${process.env.DISCORD_CLIENT_ID}&scope=bot&permissions=66560` };
+});
+
 const MIME: Record<string, string> = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml' };
 async function readBody(req: IncomingMessage) {
   let size = 0; const chunks: Buffer[] = [];
@@ -236,6 +283,8 @@ createServer(async (req, res) => {
       res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', connection: 'keep-alive' });
       res.write('retry: 2000\n\n'); clients.add(res); req.on('close', () => clients.delete(res)); return;
     }
+    const om = /^\/oauth\/(slack|discord)\/(start|callback)$/.exec(url.pathname);
+    if (om) return void (om[2] === 'start' ? oauthStart(om[1] as 'slack' | 'discord', res) : await oauthCallback(om[1] as 'slack' | 'discord', url, res));
     if (url.pathname.startsWith('/api/')) {
       for (const [method, rx, h] of routes) {
         const m = rx.exec(url.pathname);

@@ -28,3 +28,15 @@ npm test
 - Polling, not websockets: alerts arrive within ~15 s live (~4 s in demo).
 - Single-tenant, JSON-file storage (`data/db.json`), no auth on the console. Put it behind a login before exposing it.
 - Live adapters are written against the public API docs but have not been exercised against real workspaces.
+
+## One-click connect (official OAuth)
+`Continue with Slack` / `Continue with Discord` in the Connect dialog. The user approves on Slack/Discord itself; no token copying. Needs one-time app registration (set env vars, then restart):
+
+| Env | Where from |
+|---|---|
+| `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET` | api.slack.com/apps → your app. Redirect URL `http://localhost:4310/oauth/slack/callback`. User scopes: `channels:read channels:history users:read team:read chat:write im:write` |
+| `DISCORD_CLIENT_ID`, `DISCORD_CLIENT_SECRET` | discord.com/developers → your app. Redirect `http://localhost:4310/oauth/discord/callback` |
+| `DISCORD_BOT_TOKEN` | same app → Bot. Discord only lets a bot (invited by a server admin) read messages |
+| `PUBLIC_URL` | only when hosted somewhere other than localhost |
+
+Honest limits: Slack workspaces that restrict app installs need an admin to approve the app once (one click per workspace for him otherwise). Discord sign-in lists his servers, but reading a server's channels needs the bot invited to it by someone with Manage Server.
