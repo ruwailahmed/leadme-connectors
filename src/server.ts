@@ -288,6 +288,11 @@ async function readBody(req: IncomingMessage) {
 
 export const handler = async (req: IncomingMessage, res: ServerResponse) => {
   const url = new URL(req.url ?? '/', 'http://localhost');
+  if (serverless && url.searchParams.has('__p')) {
+    const p = url.searchParams.get('__p') ?? '/'; url.searchParams.delete('__p');
+    url.pathname = p.startsWith('/') ? p : '/' + p;
+    req.url = url.pathname + url.search;
+  }
   try {
     if (serverless && (url.pathname.startsWith('/api/') || url.pathname.startsWith('/oauth/'))) {
       const end = res.end.bind(res) as (...a: any[]) => ServerResponse;
