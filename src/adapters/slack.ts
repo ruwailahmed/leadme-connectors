@@ -62,15 +62,27 @@ export const slackAdapter: Adapter = {
     try { members = (await api(a, 'team.info')).team?.member_count ?? 0; } catch { /* scope optional */ }
     return [{ id: t.id, name: t.name, members, icon: '💬' }];
   },
-  // Channels the user is actually in (history is readable for those), public and private.
+  // Everything history() can read for this account: public/private channels, DMs, group DMs.
   async channels(a): Promise<Channel[]> {
-    const out: Channel[] = []; let cursor = '';
+    const raw: any[] = []; let cursor = '';
     do {
-      const j = await api(a, 'users.conversations', { types: 'public_channel,private_channel', exclude_archived: 'true', limit: 200, cursor });
-      for (const c of j.channels) { out.push({ id: c.id, name: c.name, topic: c.topic?.value, members: c.num_members }); channelNames.set(a.id + c.id, c.name); }
+      const j = await api(a, 'users.conversations', { types: 'public_channel,private_channel,mpim,im', exclude_archived: 'true', limit: 200, cursor });
+      raw.push(...j.channels);
       cursor = j.response_metadata?.next_cursor ?? '';
-    } while (cursor && out.length < 2000);
-    return out.sort((x, y) => (y.members ?? 0) - (x.members ?? 0));
+    } while (cursor && raw.length < 3000);
+    const out: Channel[] = [];
+    for (const c of raw) {
+      let name = c.name; let kind: Channel['kind'] = 'channel';
+      if (c.is_im) { kind = 'im'; name = `DM: ${await userName(a, c.user)}`; }
+      else if (c.is_mpim) {
+        kind = 'mpim';
+        try { const members = await api(a, 'conversations.members', { channel: c.id, limit: 9 }); const who = await Promise.all(members.members.slice(0, 6).map((u: string) => userName(a, u))); name = `Group DM: ${who.join(', ')}`; }
+        catch { name = 'Group DM'; }
+      }
+      out.push({ id: c.id, name, topic: c.topic?.value, members: c.num_members, kind });
+      channelNames.set(a.id + c.id, name);
+    }
+    return out.sort((x, y) => (x.kind === y.kind ? (y.members ?? 0) - (x.members ?? 0) : (x.kind === 'channel' ? -1 : y.kind === 'channel' ? 1 : 0)));
   },
   async history(a, _w, channelId, limit) {
     const j = await api(a, 'conversations.history', { channel: channelId, limit });

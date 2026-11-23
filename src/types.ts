@@ -19,7 +19,7 @@ export interface Account {
 }
 
 export interface Workspace { id: string; name: string; members: number; icon: string; needsBot?: boolean }
-export interface Channel { id: string; name: string; topic?: string; members?: number }
+export interface Channel { id: string; name: string; topic?: string; members?: number; kind?: 'channel' | 'im' | 'mpim' }
 
 export interface NormalizedMessage {
   id: string;

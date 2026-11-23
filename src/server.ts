@@ -242,7 +242,7 @@ const oauthCfg = () => ({
   discordBot: !!cfg('DISCORD_BOT_TOKEN'),
 });
 const states = new Map<string, { platform: string; at: number }>();
-const SLACK_SCOPES = 'channels:read,channels:history,groups:read,groups:history,users:read,team:read,chat:write,im:write';
+const SLACK_SCOPES = 'channels:read,channels:history,groups:read,groups:history,im:read,im:history,mpim:read,mpim:history,users:read,team:read,chat:write,im:write';
 function oauthStart(platform: 'slack' | 'discord', res: ServerResponse) {
   const ok = oauthCfg(); if (!ok[platform]) { res.writeHead(400, { 'content-type': 'text/plain' }); return void res.end(`${platform} OAuth is not configured. See README.`); }
   const state = uid('st'); states.set(state, { platform, at: Date.now() });

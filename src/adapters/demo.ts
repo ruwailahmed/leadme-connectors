@@ -3,7 +3,8 @@ import type { Account, Adapter, Channel, NormalizedMessage, Target, Workspace } 
 const SLACK_WS: (Workspace & { channels: Channel[] })[] = [
   { id: 'T-GTMCAFE', name: 'GTMCafe', members: 3100, icon: '☕', channels: [
     { id: 'C-general', name: 'general', members: 3100 }, { id: 'C-jobs', name: 'jobs-and-opportunities', members: 2400 },
-    { id: 'C-outbound', name: 'outbound-tactics', members: 1900 }, { id: 'C-tools', name: 'tools-and-stack', members: 1700 }] },
+    { id: 'C-outbound', name: 'outbound-tactics', members: 1900 }, { id: 'C-tools', name: 'tools-and-stack', members: 1700 },
+    { id: 'D-dana', name: 'DM: Dana Whitfield', kind: 'im' }, { id: 'G-triage', name: 'Group DM: Jordan Reyes, Priya Nair', kind: 'mpim' }] },
   { id: 'T-UNIPILE', name: 'Unipile community', members: 2000, icon: '🔌', channels: [
     { id: 'C-general', name: 'general', members: 2000 }, { id: 'C-linkedin', name: 'linkedin-api', members: 900 }, { id: 'C-help', name: 'help', members: 1200 }] },
   { id: 'T-CLAY', name: 'Clay', members: 35000, icon: '🧱', channels: [

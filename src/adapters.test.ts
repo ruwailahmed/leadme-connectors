@@ -11,7 +11,10 @@ const mock = http.createServer(async (req, res) => {
   if (u.pathname === '/slack/auth.test' && req.headers.cookie === 'd=xoxd-session') return send({ ok: true, team: 'Demo Workspace', team_id: 'T9', user: 'kodak' });
   if (u.pathname === '/slack/auth.test') return send({ ok: true, team: 'GTMCafe', team_id: 'T1', user: 'kodak' });
   if (u.pathname === '/slack/team.info') return send({ ok: true, team: { member_count: 3100 } });
-  if (u.pathname === '/slack/users.conversations') return send({ ok: true, channels: [{ id: 'C1', name: 'jobs', num_members: 2400 }, { id: 'C2', name: 'general', num_members: 3100 }], response_metadata: { next_cursor: '' } });
+  if (u.pathname === '/slack/users.conversations') return send({ ok: true, channels: [
+    { id: 'C1', name: 'jobs', num_members: 2400 }, { id: 'C2', name: 'general', num_members: 3100 },
+    { id: 'D1', is_im: true, user: 'U2' }, { id: 'G1', is_mpim: true } ], response_metadata: { next_cursor: '' } });
+  if (u.pathname === '/slack/conversations.members') return send({ ok: true, members: ['U1', 'U2'] });
   if (u.pathname === '/slack/users.info') return send({ ok: true, user: { real_name: u.searchParams.get('user') === 'U2' ? 'Dana W' : 'Maya Chen' } });
   if (u.pathname === '/slack/conversations.history') return send({ ok: true, messages: slackMsgs });
   if (u.pathname === '/discord/users/@me/guilds') return send(req.headers.authorization!.startsWith('Bot') ? [{ id: 'G1', name: 'Growth Operators' }] : [{ id: 'G1', name: 'Growth Operators', approximate_member_count: 9800 }, { id: 'G2', name: 'No Bot Here', approximate_member_count: 50 }]);
@@ -31,7 +34,11 @@ const acc = (platform: 'slack' | 'discord', extra: Partial<Account> = {}): Accou
 test('slack: workspace, member channels, history with cleaned text', async () => {
   const a = acc('slack');
   const ws = await slackAdapter.workspaces(a); assert.deepEqual([ws[0].name, ws[0].members], ['GTMCafe', 3100]);
-  const ch = await slackAdapter.channels(a, 'T1'); assert.equal(ch[0].name, 'general');
+  const ch = await slackAdapter.channels(a, 'T1');
+  assert.deepEqual(ch.map(c => c.kind), ['channel', 'channel', 'im', 'mpim'], 'real channels first, then DMs/group DMs');
+  assert.equal(ch[0].name, 'general');
+  assert.equal(ch.find(c => c.kind === 'im')!.name, 'DM: Dana W');
+  assert.equal(ch.find(c => c.kind === 'mpim')!.name, 'Group DM: Maya Chen, Dana W');
   const h = await slackAdapter.history(a, 'T1', 'C1', 10);
   assert.equal(h.length, 1, 'system subtypes are skipped');
   assert.equal(h[0].text, 'Anyone have @Dana W LinkedIn accounts for rent? site (https://x.io)');
