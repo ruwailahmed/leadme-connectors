@@ -95,12 +95,15 @@ route('GET', '/api/accounts', () => db.accounts.map(safeAccount));
 route('POST', '/api/accounts', async ({ body }) => {
   if (!['slack', 'discord'].includes(body.platform)) throw bad('platform must be slack or discord');
   const live = body.mode === 'live';
-  const session = live && body.platform === 'slack' && !!body.sessionCookie;
-  if (live && !session && !body.token) throw bad('token required for live mode');
-  if (session && (!body.token || !body.sessionCookie)) throw bad('both the token and the cookie are required');
+  const slackSession = live && body.platform === 'slack' && !!body.sessionCookie;
+  const discordSelf = live && body.platform === 'discord' && !!body.selfToken;
+  if (live && !slackSession && !discordSelf && !body.token) throw bad('token required for live mode');
+  if (slackSession && (!body.token || !body.sessionCookie)) throw bad('both the token and the cookie are required');
+  if (discordSelf && !String(body.selfToken).trim()) throw bad('token is required');
   const a: Account = { id: uid('acc'), platform: body.platform, mode: live ? 'live' : 'demo', label: String(body.label || `${body.platform} account`).slice(0, 60),
-    email: String(body.email || 'demo@leadme.app').slice(0, 80), token: live ? String(body.token) : undefined,
-    sessionCookie: session ? String(body.sessionCookie) : undefined, status: 'healthy', createdAt: Date.now() };
+    email: String(body.email || 'demo@leadme.app').slice(0, 80), token: live && !discordSelf ? String(body.token) : undefined,
+    sessionCookie: slackSession ? String(body.sessionCookie) : undefined, selfToken: discordSelf ? String(body.selfToken).trim() : undefined,
+    status: 'healthy', createdAt: Date.now() };
   if (live) { try { const r = await adapterFor(a).check(a); a.email = r.identity ?? a.email; } catch (e: any) { throw bad(`could not verify credentials: ${e.message}`); } }
   db.accounts.push(a); save(); emit('account', safeAccount(a));
   return safeAccount(a);

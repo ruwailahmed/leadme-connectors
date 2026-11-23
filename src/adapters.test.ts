@@ -18,6 +18,7 @@ const mock = http.createServer(async (req, res) => {
   if (u.pathname === '/slack/users.info') return send({ ok: true, user: { real_name: u.searchParams.get('user') === 'U2' ? 'Dana W' : 'Maya Chen' } });
   if (u.pathname === '/slack/conversations.history') return send({ ok: true, messages: slackMsgs });
   if (u.pathname === '/discord/users/@me/guilds') return send(req.headers.authorization!.startsWith('Bot') ? [{ id: 'G1', name: 'Growth Operators' }] : [{ id: 'G1', name: 'Growth Operators', approximate_member_count: 9800 }, { id: 'G2', name: 'No Bot Here', approximate_member_count: 50 }]);
+  if (u.pathname === '/discord/guilds/G2/channels' && req.headers.authorization === 'raw-self-token') return send([{ id: 'D9', name: 'staff-only', type: 0 }]);
   if (u.pathname === '/discord/guilds/G1/channels') return send([{ id: 'D1', name: 'lead-gen', type: 0 }, { id: 'D2', name: 'voice', type: 2 }]);
   if (u.pathname === '/discord/guilds/G2/channels') return send({ message: 'Missing Access' }, 403);
   if (u.pathname === '/discord/channels/D1/messages') return send([{ id: '1166000000000000000', content: 'Need cold email infrastructure', author: { id: 'A1', username: 'sam', global_name: 'Sam O' } }, { id: '1166000000000000001', content: 'bot spam', author: { id: 'B', username: 'bot', bot: true } }]);
@@ -68,5 +69,10 @@ test('discord: text channels only; missing bot gives a clear error', async () =>
 test('discord: poll drops bot messages', async () => {
   const m = await discordAdapter.poll(acc('discord', { userToken: 'u' }), [{ accountId: 'a_discord', workspaceId: 'G1', channelId: 'D1', label: 'Growth Operators #lead-gen' }], Date.now() - 1000);
   assert.equal(m.length, 1); assert.equal(m[0].author.name, 'Sam O'); assert.match(m[0].permalink, /channels\/G1\/D1\//);
+});
+test('discord: selfToken reads a server with no bot present, auth header is the raw token (no prefix)', async () => {
+  const a = acc('discord', { selfToken: 'raw-self-token' });
+  const ws = await discordAdapter.workspaces(a); assert.equal(ws.every(w => w.needsBot === undefined), true, 'no bot-invite gating in self-token mode');
+  const ch = await discordAdapter.channels(a, 'G2'); assert.deepEqual(ch.map(c => c.name), ['staff-only']);
 });
 test.after(() => mock.close());

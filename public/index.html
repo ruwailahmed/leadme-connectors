@@ -152,8 +152,19 @@ function setupModal(p,oc){
     <p><b>1.</b> <a class="btn sm pri" target="_blank" rel="noopener" href="https://discord.com/developers/applications">Open Discord Developer Portal</a> → New Application → <i>OAuth2</i>. Add this redirect:</p><code class="cp" onclick="cp(this)">${esc(redir)}</code>
     <p><b>2.</b> Paste the app's <b>Client ID</b> and <b>Client Secret</b> (OAuth2 page), and the <b>Bot token</b> (Bot page, and turn on <b>Message Content Intent</b> there):</p>
     <input type="text" id="did" placeholder="Client ID" autocomplete="off"><input type="password" id="dsec" placeholder="Client Secret" autocomplete="off" style="margin-top:8px"><input type="password" id="dbot" placeholder="Bot token" autocomplete="off" style="margin-top:8px">
-    <p id="derr" class="small" style="color:var(--bad)"></p><div class="row"><div class="sp"></div><button class="btn" onclick="connectModal()">Back</button><button class="btn pri" id="dgo">Save &amp; continue to Discord</button></div>`),
+    <p id="derr" class="small" style="color:var(--bad)"></p><div class="row"><div class="sp"></div><button class="btn" onclick="connectModal()">Back</button><button class="btn pri" id="dgo">Save &amp; continue to Discord</button></div>
+    <p class="small mut" style="margin-top:16px;border-top:1px solid var(--line);padding-top:12px">No bot, no server admin involved? <a href="#" onclick="discordSessionModal();return false">Use your Discord account directly</a>.</p>`),
     $('#dgo').onclick=async()=>{try{await api('/oauth/settings',{method:'PUT',body:{DISCORD_CLIENT_ID:$('#did').value,DISCORD_CLIENT_SECRET:$('#dsec').value,DISCORD_BOT_TOKEN:$('#dbot').value}});location='/oauth/discord/start'}catch(e){$('#derr').textContent=e.message}}}
+function discordSessionModal(){
+  modal(`<div class="k">// Your own account · no bot, no admin</div><h2 style="margin:4px 0 10px">Use your Discord account directly</h2>
+  <div class="banner">This is <b>your personal Discord login</b>, not a scoped app connection — it reads (and can post as) everything your account can, in every server it's in. Discord explicitly bans this ("self-botting") and enforces it harder than Slack, sometimes at the device level. Use it only on an account you're fine losing.</div>
+  <label class="f">1. In your own browser, open Discord (discord.com/app) and sign in</label>
+  <label class="f">2. DevTools (⌥⌘I) → Network tab → click around (open a server) → find any request to discord.com/api/* → copy its <b>Authorization</b> request header value</label>
+  <input type="password" id="dxt" placeholder="Your Discord token" autocomplete="off">
+  <label class="f">Label</label><input type="text" id="dxl" placeholder="e.g. Demo Discord">
+  <p id="dxerr" class="small" style="color:var(--bad)"></p>
+  <div class="row" style="margin-top:14px"><button class="btn" onclick="setupModal('discord',{})">Back</button><div class="sp"></div><button class="btn pri" id="dxgo">Connect</button></div>`);
+  $('#dxgo').onclick=async()=>{try{$('#dxgo').disabled=true;await api('/accounts',{method:'POST',body:{platform:'discord',mode:'live',label:$('#dxl').value||'Discord (session)',selfToken:$('#dxt').value.trim()}});closeModal();load()}catch(e){$('#dxerr').textContent=e.message;$('#dxgo').disabled=false}}}
 async function demoAcc(){for(const p of ['slack','discord'])await api('/accounts',{method:'POST',body:{platform:p,mode:'demo',label:p==='slack'?'Demo Slack':'Demo Discord',email:'demo@leadme.app'}});closeModal();load()}
 const simulate=async(id,status)=>{await api(`/accounts/${id}/simulate`,{method:'POST',body:{status}});load()};
 const reconnect=async id=>{await api(`/accounts/${id}/reconnect`,{method:'POST'});load()};

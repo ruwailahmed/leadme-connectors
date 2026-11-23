@@ -11,6 +11,7 @@ export interface Account {
   sessionCookie?: string;
   userToken?: string;
   refreshToken?: string;
+  selfToken?: string;
   userTokenExp?: number;
   status: Health;
   statusNote?: string;

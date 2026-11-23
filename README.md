@@ -40,3 +40,6 @@ npm test
 | `PUBLIC_URL` | only when hosted somewhere other than localhost |
 
 Honest limits: Slack workspaces that restrict app installs need an admin to approve the app once (one click per workspace for him otherwise). Discord sign-in lists his servers, but reading a server's channels needs the bot invited to it by someone with Manage Server.
+
+## Discord: your own account, no bot
+`Use your Discord account directly` on the Discord setup panel — reads (and can post as) your own account, no bot, no server admin. Same shape as the Slack session path: you paste your own token, copied by you from your own browser's Network tab. Real ToS violation on Discord's side, enforced harder than Slack's equivalent (sometimes device-level bans) — account-owner's call, own risk.
