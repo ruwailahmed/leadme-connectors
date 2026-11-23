@@ -5,9 +5,10 @@ import type { Account } from './types.ts';
 
 const nowS = () => (Date.now() / 1000).toFixed(6);
 const slackMsgs = [{ ts: nowS(), user: 'U1', text: 'Anyone have <@U2> LinkedIn accounts for rent? <https://x.io|site>' }, { ts: nowS(), subtype: 'channel_join', user: 'U9', text: 'joined' }];
-const mock = http.createServer((req, res) => {
+const mock = http.createServer(async (req, res) => {
   const u = new URL(req.url!, 'http://x'); const send = (o: unknown, code = 200) => { res.writeHead(code, { 'content-type': 'application/json' }); res.end(JSON.stringify(o)); };
   if (req.headers.authorization === 'Bearer bad') return send({ ok: false, error: 'invalid_auth' });
+  if (u.pathname === '/slack/auth.test' && req.headers.cookie === 'd=xoxd-session') return send({ ok: true, team: 'Demo Workspace', team_id: 'T9', user: 'kodak' });
   if (u.pathname === '/slack/auth.test') return send({ ok: true, team: 'GTMCafe', team_id: 'T1', user: 'kodak' });
   if (u.pathname === '/slack/team.info') return send({ ok: true, team: { member_count: 3100 } });
   if (u.pathname === '/slack/users.conversations') return send({ ok: true, channels: [{ id: 'C1', name: 'jobs', num_members: 2400 }, { id: 'C2', name: 'general', num_members: 3100 }], response_metadata: { next_cursor: '' } });
@@ -39,6 +40,11 @@ test('slack: workspace, member channels, history with cleaned text', async () =>
 test('slack: poll returns normalized messages for targets', async () => {
   const m = await slackAdapter.poll(acc('slack'), [{ accountId: 'a_slack', workspaceId: 'T1', channelId: 'C1', label: 'GTMCafe #jobs' }], Date.now() - 5000);
   assert.equal(m.length, 1); assert.equal(m[0].channel, 'jobs'); assert.equal(m[0].source, 'slack');
+});
+test('slack: session-cookie mode (own account, own workspace) authenticates via cookie, not Bearer', async () => {
+  const a = acc('slack', { token: 'xoxc-fake', sessionCookie: 'xoxd-session' });
+  const r = await slackAdapter.check(a);
+  assert.equal(r.identity, 'kodak@Demo Workspace');
 });
 test('slack: bad token surfaces as an error (drives the health status)', async () => {
   await assert.rejects(slackAdapter.workspaces(acc('slack', { id: 'a_bad', token: 'bad' })), /invalid_auth/);

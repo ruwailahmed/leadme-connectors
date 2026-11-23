@@ -5,12 +5,17 @@ import type { Account, Adapter, Channel, NormalizedMessage, Workspace } from '..
 const BASE = () => process.env.SLACK_API_BASE ?? 'https://slack.com/api';
 
 async function api(a: Account, method: string, params: Record<string, string | number> = {}, post = false) {
+  // OAuth user token (xoxp-...): Bearer header, scoped to what the app asked for.
+  // Session token (xoxc-... + "d" cookie, pasted from the account owner's own browser, their own
+  // explicit opt-in on a workspace they accept the ToS/ban risk for): full-session auth, Slack's web client shape.
+  const session = !!a.sessionCookie;
   const url = new URL(`${BASE()}/${method}`);
-  const init: RequestInit = { headers: { Authorization: `Bearer ${a.token}` }, signal: AbortSignal.timeout(15000) };
-  if (post) {
+  const init: RequestInit = { headers: session ? { Cookie: `d=${a.sessionCookie}` } : { Authorization: `Bearer ${a.token}` }, signal: AbortSignal.timeout(15000) };
+  const body = session ? { ...params, token: a.token ?? '' } : params;
+  if (post || session) {
     init.method = 'POST';
-    init.headers = { ...init.headers, 'Content-Type': 'application/json; charset=utf-8' };
-    init.body = JSON.stringify(params);
+    init.headers = { ...init.headers, 'Content-Type': 'application/x-www-form-urlencoded' };
+    init.body = new URLSearchParams(body as Record<string, string>).toString();
   } else for (const [k, v] of Object.entries(params)) if (v !== '') url.searchParams.set(k, String(v));
   const res = await fetch(url, init);
   if (res.status === 429) throw new Error(`rate_limited retry-after=${res.headers.get('retry-after')}`);

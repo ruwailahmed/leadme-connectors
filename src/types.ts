@@ -8,6 +8,7 @@ export interface Account {
   label: string;
   email: string;
   token?: string;
+  sessionCookie?: string;
   userToken?: string;
   refreshToken?: string;
   userTokenExp?: number;

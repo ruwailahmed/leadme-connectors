@@ -125,6 +125,18 @@ async function connectModal(){
   <div style="display:grid;gap:10px"><button class="prov" onclick="startConnect('slack')"><span class="plat slack">S</span>Slack<span class="arrow">›</span></button><button class="prov" onclick="startConnect('discord')"><span class="plat discord">D</span>Discord<span class="arrow">›</span></button></div>
   <p class="small mut" style="margin-top:16px">${oc.slack||oc.discord?'You approve access on the provider\'s own page and land back here connected.':'First time: a one-time 2-minute setup connects leadme to Slack/Discord, then it is one click.'}<br><a href="#" onclick="demoAcc();return false">Or load demo data</a></p>`)}
 async function startConnect(p){const oc=await api('/oauth/config');if(oc[p])return void(location='/oauth/'+p+'/start');setupModal(p,oc)}
+function slackSessionModal(){
+  modal(`<div class="k">// Your own session · your own workspace</div><h2 style="margin:4px 0 10px">Use your Slack session</h2>
+  <div class="banner">Skips the Slack app entirely — this is <b>your personal login</b>, not a scoped connection. Anything holding it can read your DMs and private channels and post as you, in <b>any</b> workspace it's valid for, not just the one you mean to demo. Slack bans accounts for this. Use it only on a workspace you own and don't mind losing.</div>
+  <label class="f">1. In your own browser, open Slack and sign in to the workspace</label>
+  <label class="f">2. Open DevTools (⌥⌘I) → Network tab, click around in Slack, find any request to slack.com/api/* → copy its <b>token</b> form field (starts <code>xoxc-</code>)</label>
+  <input type="text" id="sxt" placeholder="xoxc-… token" autocomplete="off">
+  <label class="f">3. Same DevTools → Application → Cookies → app.slack.com → copy the value of the <b>d</b> cookie (starts <code>xoxd-</code>)</label>
+  <input type="password" id="sxc" placeholder="d cookie value" autocomplete="off">
+  <label class="f">Label</label><input type="text" id="sxl" placeholder="e.g. Demo workspace">
+  <p id="sxerr" class="small" style="color:var(--bad)"></p>
+  <div class="row" style="margin-top:14px"><button class="btn" onclick="setupModal('slack',{})">Back</button><div class="sp"></div><button class="btn pri" id="sxgo">Connect</button></div>`);
+  $('#sxgo').onclick=async()=>{try{$('#sxgo').disabled=true;await api('/accounts',{method:'POST',body:{platform:'slack',mode:'live',label:$('#sxl').value||'Slack (session)',token:$('#sxt').value.trim(),sessionCookie:$('#sxc').value.trim()}});closeModal();load()}catch(e){$('#sxerr').textContent=e.message;$('#sxgo').disabled=false}}}
 function cp(el){navigator.clipboard?.writeText(el.textContent);toast('Copied')}
 function setupModal(p,oc){
   const base=oc.baseUrl,redir=`${base}/oauth/${p}/callback`;
@@ -133,7 +145,8 @@ function setupModal(p,oc){
     <p><b>1.</b> <a class="btn sm pri" target="_blank" rel="noopener" href="https://api.slack.com/apps?new_app=1&manifest_json=${encodeURIComponent(JSON.stringify(manifest))}">Create the Slack app (pre-filled)</a> <span class="mut small">choose a workspace, click Create</span></p>
     <p><b>2.</b> On that app's <i>Basic Information</i> page, copy the <b>Client ID</b> and <b>Client Secret</b> here:</p>
     <input type="text" id="sid" placeholder="Client ID" autocomplete="off"><input type="password" id="ssec" placeholder="Client Secret" autocomplete="off" style="margin-top:8px">
-    <p id="serr" class="small" style="color:var(--bad)"></p><div class="row"><div class="sp"></div><button class="btn" onclick="connectModal()">Back</button><button class="btn pri" id="sgo">Save &amp; continue to Slack</button></div>`);
+    <p id="serr" class="small" style="color:var(--bad)"></p><div class="row"><div class="sp"></div><button class="btn" onclick="connectModal()">Back</button><button class="btn pri" id="sgo">Save &amp; continue to Slack</button></div>
+    <p class="small mut" style="margin-top:16px;border-top:1px solid var(--line);padding-top:12px">Demoing on your own workspace and OK skipping this for now? <a href="#" onclick="slackSessionModal();return false">Use your Slack session instead</a>.</p>`);
     $('#sgo').onclick=async()=>{try{await api('/oauth/settings',{method:'PUT',body:{SLACK_CLIENT_ID:$('#sid').value,SLACK_CLIENT_SECRET:$('#ssec').value}});location='/oauth/slack/start'}catch(e){$('#serr').textContent=e.message}}}
   else modal(`<div class="k">// One-time setup · Discord</div><h2 style="margin:4px 0 14px">Connect leadme to Discord</h2>
     <p><b>1.</b> <a class="btn sm pri" target="_blank" rel="noopener" href="https://discord.com/developers/applications">Open Discord Developer Portal</a> → New Application → <i>OAuth2</i>. Add this redirect:</p><code class="cp" onclick="cp(this)">${esc(redir)}</code>
