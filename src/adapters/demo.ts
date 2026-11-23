@@ -82,6 +82,10 @@ export const demoAdapter: Adapter = {
     if (Math.random() > 0.55) return [];
     return [demoMessage(a, pick(targets))];
   },
+  async history(a, workspaceId, channelId, limit) {
+    const t = { accountId: a.id, workspaceId, channelId, label: '' };
+    return Array.from({ length: Math.min(limit, 25) }, (_, i) => { const m = demoMessage(a, t); m.ts -= (i + 1) * 900_000; return m; });
+  },
   async send() { /* demo: accepted */ },
   async check(a) { return { ok: a.status !== 'disconnected', identity: a.email }; },
 };

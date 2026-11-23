@@ -9,13 +9,15 @@ export interface Account {
   email: string;
   token?: string;
   userToken?: string;
+  refreshToken?: string;
+  userTokenExp?: number;
   status: Health;
   statusNote?: string;
   lastSync?: number;
   createdAt: number;
 }
 
-export interface Workspace { id: string; name: string; members: number; icon: string }
+export interface Workspace { id: string; name: string; members: number; icon: string; needsBot?: boolean }
 export interface Channel { id: string; name: string; topic?: string; members?: number }
 
 export interface NormalizedMessage {
@@ -72,6 +74,7 @@ export interface Adapter {
   workspaces(a: Account): Promise<Workspace[]>;
   channels(a: Account, workspaceId: string): Promise<Channel[]>;
   poll(a: Account, targets: Target[], since: number): Promise<NormalizedMessage[]>;
+  history(a: Account, workspaceId: string, channelId: string, limit: number): Promise<NormalizedMessage[]>;
   send(a: Account, workspaceId: string, channelId: string, text: string, userId?: string): Promise<void>;
   check(a: Account): Promise<{ ok: boolean; note?: string; identity?: string }>;
 }

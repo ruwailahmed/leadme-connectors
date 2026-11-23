@@ -8,7 +8,7 @@ import { db, save, uid, DATA_DIR, hydrate, flush, remote, serverless, CAP } from
 import { buildCriteria, classify, questionsFor } from './classifier.ts';
 import { demoAdapter, demoMessage } from './adapters/demo.ts';
 import { slackAdapter } from './adapters/slack.ts';
-import { discordAdapter } from './adapters/discord.ts';
+import { discordAdapter, setDiscordRefresher } from './adapters/discord.ts';
 import type { Account, Adapter, Alert, Monitor, NormalizedMessage, Target } from './types.ts';
 
 const PORT = Number(process.env.PORT ?? 4310);
@@ -62,9 +62,9 @@ async function tick() {
     for (const m of db.monitors) if (m.status === 'listening') for (const t of m.targets) if (t.accountId === a.id) targets.set(t.workspaceId + t.channelId, t);
     if (!targets.size) continue;
     try {
-      const since = sinceByAccount.get(a.id) ?? Date.now() - 1000;
+      const since = sinceByAccount.get(a.id) ?? Date.now() - 1000; const startedAt = Date.now();
       const msgs = await adapterFor(a).poll(a, [...targets.values()], since);
-      sinceByAccount.set(a.id, Date.now());
+      sinceByAccount.set(a.id, startedAt - 2000);
       for (const m of msgs.sort((x, y) => x.ts - y.ts)) await handleMessage(m);
       if (a.status !== 'healthy' && a.mode === 'live') { a.status = 'healthy'; a.statusNote = undefined; emit('account', safeAccount(a)); }
       failures.set(a.id, 0); a.lastSync = Date.now();
@@ -122,6 +122,10 @@ route('POST', '/api/accounts/:id/reconnect', async ({ params }) => {
 route('GET', '/api/accounts/:id/workspaces', ({ params }) => { const a = getAccount(params[0]); return adapterFor(a).workspaces(a); });
 route('GET', '/api/accounts/:id/workspaces/:wid/channels', ({ params }) => { const a = getAccount(params[0]); return adapterFor(a).channels(a, params[1]); });
 
+route('GET', '/api/accounts/:id/workspaces/:wid/channels/:cid/messages', async ({ params }) => {
+  const a = getAccount(params[0]); const msgs = await adapterFor(a).history(a, params[1], params[2], 30);
+  return msgs.sort((x, y) => y.ts - x.ts);
+});
 route('GET', '/api/monitors', () => db.monitors);
 route('POST', '/api/monitors', ({ body }) => {
   const description = String(body.description ?? '').trim();
@@ -149,12 +153,15 @@ route('POST', '/api/monitors/:id/replay', async ({ params }) => {
   for (const msg of pool) { const v = await classify(m.description, m.criteria, msg); if (v.match) out.push({ message: msg, reason: v.reason }); }
   return { scanned: pool.length, matches: out.length, results: out.slice(-20).reverse() };
 });
-route('PUT', '/api/monitors/:id/targets', ({ params, body }) => {
+route('PUT', '/api/monitors/:id/targets', async ({ params, body }) => {
   const m = getMonitor(params[0]);
   if (!Array.isArray(body.targets)) throw bad('targets must be an array');
   const next: Target[] = body.targets.map((t: any) => { getAccount(t.accountId); return { accountId: String(t.accountId), workspaceId: String(t.workspaceId), channelId: String(t.channelId), label: String(t.label ?? '') }; });
   for (const t of next) if (!m.targets.some(o => o.accountId === t.accountId && o.channelId === t.channelId)) seedHistory(getAccount(t.accountId), t);
-  m.targets = next; save(); return m;
+  const added = next.filter(t => !m.targets.some(o => o.accountId === t.accountId && o.channelId === t.channelId));
+  m.targets = next; save();
+  for (const t of added) { const a = getAccount(t.accountId); if (a.mode === 'live') await adapterFor(a).history(a, t.workspaceId, t.channelId, 40).then(ms => { for (const x of ms) if (!seen.has(x.id)) db.history.push(x); db.history = db.history.slice(-CAP.history); save(); }).catch(e => console.error('backfill failed', t.label, e.message)); }
+  return m;
 });
 route('POST', '/api/monitors/:id/deploy', ({ params }) => {
   const m = getMonitor(params[0]);
@@ -232,7 +239,7 @@ const oauthCfg = () => ({
   discordBot: !!cfg('DISCORD_BOT_TOKEN'),
 });
 const states = new Map<string, { platform: string; at: number }>();
-const SLACK_SCOPES = 'channels:read,channels:history,users:read,team:read,chat:write,im:write';
+const SLACK_SCOPES = 'channels:read,channels:history,groups:read,groups:history,users:read,team:read,chat:write,im:write';
 function oauthStart(platform: 'slack' | 'discord', res: ServerResponse) {
   const ok = oauthCfg(); if (!ok[platform]) { res.writeHead(400, { 'content-type': 'text/plain' }); return void res.end(`${platform} OAuth is not configured. See README.`); }
   const state = uid('st'); states.set(state, { platform, at: Date.now() });
@@ -260,20 +267,30 @@ async function oauthCallback(platform: 'slack' | 'discord', url: URL, res: Serve
         body: new URLSearchParams({ client_id: cfg('DISCORD_CLIENT_ID'), client_secret: cfg('DISCORD_CLIENT_SECRET'), grant_type: 'authorization_code', code, redirect_uri }) });
       const j = await r.json() as any; if (!j.access_token) return back('oauth=failed');
       const me = await (await fetch('https://discord.com/api/v10/users/@me', { headers: { Authorization: `Bearer ${j.access_token}` } })).json() as any;
-      a = { id: uid('acc'), platform: 'discord', mode: 'live', label: me.global_name || me.username || 'Discord', email: me.username ?? 'Discord', token: cfg('DISCORD_BOT_TOKEN'), userToken: j.access_token, status: 'healthy', createdAt: Date.now() };
+      a = { id: uid('acc'), platform: 'discord', mode: 'live', label: me.global_name || me.username || 'Discord', email: me.username ?? 'Discord', token: cfg('DISCORD_BOT_TOKEN'), userToken: j.access_token, refreshToken: j.refresh_token, userTokenExp: Date.now() + (j.expires_in ?? 604800) * 1000, status: 'healthy', createdAt: Date.now() };
     }
     db.accounts.push(a); save(); emit('account', safeAccount(a)); back(`connected=${platform}`);
   } catch (e: any) { console.error('oauth', platform, e.message); back('oauth=failed'); }
 }
+setDiscordRefresher(async a => {
+  if (!a.refreshToken) return false;
+  try {
+    const r = await fetch('https://discord.com/api/v10/oauth2/token', { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ client_id: cfg('DISCORD_CLIENT_ID'), client_secret: cfg('DISCORD_CLIENT_SECRET'), grant_type: 'refresh_token', refresh_token: a.refreshToken }) });
+    const j = await r.json() as any; if (!j.access_token) return false;
+    a.userToken = j.access_token; a.refreshToken = j.refresh_token ?? a.refreshToken; a.userTokenExp = Date.now() + (j.expires_in ?? 604800) * 1000; save(); return true;
+  } catch (e: any) { console.error('discord refresh failed', e.message); return false; }
+});
 route('GET', '/api/oauth/config', () => ({ ...oauthCfg(), baseUrl: BASE_URL(), slackScopes: SLACK_SCOPES }));
 route('PUT', '/api/oauth/settings', ({ body }) => {
   const allowed = ['SLACK_CLIENT_ID', 'SLACK_CLIENT_SECRET', 'DISCORD_CLIENT_ID', 'DISCORD_CLIENT_SECRET', 'DISCORD_BOT_TOKEN'];
   for (const k of allowed) if (typeof body[k] === 'string' && body[k].trim()) db.settings[k] = body[k].trim().slice(0, 300);
   save(); return oauthCfg();
 });
-route('GET', '/api/discord/invite', () => {
+route('GET', '/api/discord/invite', ({ url }) => {
   if (!cfg('DISCORD_CLIENT_ID')) throw bad('Discord is not configured');
-  return { url: `https://discord.com/oauth2/authorize?client_id=${cfg('DISCORD_CLIENT_ID')}&scope=bot&permissions=66560` };
+  const g = (url.searchParams.get('guild') ?? '').replace(/\D/g, '');
+  return { url: `https://discord.com/oauth2/authorize?client_id=${cfg('DISCORD_CLIENT_ID')}&scope=bot&permissions=66560${g ? `&guild_id=${g}&disable_guild_select=true` : ''}` };
 });
 
 
