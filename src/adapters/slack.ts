@@ -25,6 +25,24 @@ async function api(a: Account, method: string, params: Record<string, string | n
 }
 
 const names = new Map<string, string>();
+const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
+
+// One paced users.list sweep gives us every name AND the real workspace size in one go,
+// instead of one users.info call per person — which is what was blowing Slack's rate limit.
+const directory = new Map<string, { at: number; size: number }>();
+async function loadDirectory(a: Account) {
+  const cached = directory.get(a.id);
+  if (cached && Date.now() - cached.at < 10 * 60_000) return cached.size;
+  let cursor = ''; let size = 0; let pages = 0;
+  do {
+    const j = await api(a, 'users.list', { limit: 200, cursor });
+    for (const u of j.members) { if (!u.deleted) { size++; names.set(a.id + u.id, u.profile?.display_name || u.real_name || u.name); } }
+    cursor = j.response_metadata?.next_cursor ?? '';
+    if (cursor) await sleep(150);
+  } while (cursor && ++pages < 25);
+  directory.set(a.id, { at: Date.now(), size });
+  return size;
+}
 async function userName(a: Account, id?: string) {
   if (!id) return 'unknown';
   const k = a.id + id;
@@ -59,25 +77,32 @@ export const slackAdapter: Adapter = {
   async workspaces(a): Promise<Workspace[]> {
     const t = await whoami(a);
     let members = 0;
-    try { members = (await api(a, 'team.info')).team?.member_count ?? 0; } catch { /* scope optional */ }
+    try { members = await loadDirectory(a); } catch (e: any) { console.error('slack directory load failed', e.message); }
     return [{ id: t.id, name: t.name, members, icon: '💬' }];
   },
   // Everything history() can read for this account: public/private channels, DMs, group DMs.
   async channels(a): Promise<Channel[]> {
+    try { await loadDirectory(a); } catch { /* names still resolve one-by-one below if this fails */ }
     const raw: any[] = []; let cursor = '';
     do {
       const j = await api(a, 'users.conversations', { types: 'public_channel,private_channel,mpim,im', exclude_archived: 'true', limit: 200, cursor });
       raw.push(...j.channels);
       cursor = j.response_metadata?.next_cursor ?? '';
+      if (cursor) await sleep(150);
     } while (cursor && raw.length < 3000);
     const out: Channel[] = [];
+    let mpimsEnriched = 0;
     for (const c of raw) {
       let name = c.name; let kind: Channel['kind'] = 'channel';
       if (c.is_im) { kind = 'im'; name = `DM: ${await userName(a, c.user)}`; }
       else if (c.is_mpim) {
         kind = 'mpim';
-        try { const members = await api(a, 'conversations.members', { channel: c.id, limit: 9 }); const who = await Promise.all(members.members.slice(0, 6).map((u: string) => userName(a, u))); name = `Group DM: ${who.join(', ')}`; }
-        catch { name = 'Group DM'; }
+        // Past the first 20, skip the extra per-channel lookup (conversations.members) — avoids
+        // a rate-limit burst on workspaces with a lot of group DMs; those just show "Group DM".
+        if (mpimsEnriched++ < 20) {
+          try { const m = await api(a, 'conversations.members', { channel: c.id, limit: 9 }); const who = await Promise.all(m.members.slice(0, 6).map((u: string) => userName(a, u))); name = `Group DM: ${who.join(', ')}`; await sleep(150); }
+          catch { name = 'Group DM'; }
+        } else name = 'Group DM';
       }
       out.push({ id: c.id, name, topic: c.topic?.value, members: c.num_members, kind });
       channelNames.set(a.id + c.id, name);
