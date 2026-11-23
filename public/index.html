@@ -37,6 +37,8 @@ h1{font-size:24px;letter-spacing:-.02em;margin:0 0 4px}.sub{color:var(--mut);mar
 .chlist{max-height:220px;overflow:auto;margin-top:8px;border:1px solid var(--line);border-radius:10px}
 .ch{display:flex;gap:9px;align-items:center;padding:7px 11px;border-bottom:1px solid var(--line);cursor:pointer}.ch:last-child{border:0}.ch:hover{background:var(--panel2)}
 input[type=text],input[type=password],textarea,select{width:100%;background:var(--panel2);border:1px solid var(--line);color:var(--tx);border-radius:9px;padding:9px 11px;font:inherit}
+.pwrap{position:relative}.pwrap input{padding-right:36px}
+.pweye{position:absolute;right:4px;top:4px;bottom:4px;width:30px;background:none;border:0;cursor:pointer;color:var(--mut);font-size:15px;display:flex;align-items:center;justify-content:center;border-radius:6px}.pweye:hover{background:var(--line);color:var(--tx)}
 textarea{min-height:86px;resize:vertical}input:focus,textarea:focus,select:focus{outline:2px solid var(--acc);outline-offset:-1px}
 .modal{position:fixed;inset:0;background:#0009;display:none;place-items:center;padding:20px;z-index:20}.modal.show{display:grid}
 .sheet{background:var(--panel);border:1px solid var(--line);border-radius:8px;width:min(680px,100%);max-height:92vh;overflow:auto;padding:24px}
@@ -73,6 +75,8 @@ code.cp{display:block;background:var(--panel2);border:1px solid var(--line);bord
 <script>
 const $=s=>document.querySelector(s);
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const pf=(id,ph,style)=>`<div class="pwrap" ${style?`style="${style}"`:''}><input type="password" id="${id}" placeholder="${esc(ph)}" autocomplete="off"><button type="button" class="pweye" tabindex="-1" onclick="togglePw('${id}',this)">👁</button></div>`;
+function togglePw(id,btn){const i=document.getElementById(id);if(!i)return;const hidden=i.type==='password';i.type=hidden?'text':'password';btn.textContent=hidden?'🙈':'👁'}
 async function api(path,opt={}){const r=await fetch('/api'+path,{headers:{'content-type':'application/json'},...opt,body:opt.body?JSON.stringify(opt.body):undefined});const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.error||r.statusText);return j}
 const S={view:'connections',accounts:[],monitors:[],alerts:[],stats:{},filter:'new',open:{}};
 const ago=t=>{const s=(Date.now()-t)/1000;return s<60?'just now':s<3600?Math.floor(s/60)+'m ago':s<86400?Math.floor(s/3600)+'h ago':Math.floor(s/86400)+'d ago'};
@@ -132,7 +136,7 @@ function slackSessionModal(){
   <label class="f">2. Open DevTools (⌥⌘I) → Network tab, click around in Slack, find any request to slack.com/api/* → copy its <b>token</b> form field (starts <code>xoxc-</code>)</label>
   <input type="text" id="sxt" placeholder="xoxc-… token" autocomplete="off">
   <label class="f">3. Same DevTools → Application → Cookies → app.slack.com → copy the value of the <b>d</b> cookie (starts <code>xoxd-</code>)</label>
-  <input type="password" id="sxc" placeholder="d cookie value" autocomplete="off">
+  ${pf('sxc','d cookie value')}
   <label class="f">Label</label><input type="text" id="sxl" placeholder="e.g. Demo workspace">
   <p id="sxerr" class="small" style="color:var(--bad)"></p>
   <div class="row" style="margin-top:14px"><button class="btn" onclick="setupModal('slack',{})">Back</button><div class="sp"></div><button class="btn pri" id="sxgo">Connect</button></div>`);
@@ -144,14 +148,14 @@ function setupModal(p,oc){
     modal(`<div class="k">// One-time setup · Slack</div><h2 style="margin:4px 0 14px">Connect leadme to Slack</h2>
     <p><b>1.</b> <a class="btn sm pri" target="_blank" rel="noopener" href="https://api.slack.com/apps?new_app=1&manifest_json=${encodeURIComponent(JSON.stringify(manifest))}">Create the Slack app (pre-filled)</a> <span class="mut small">choose a workspace, click Create</span></p>
     <p><b>2.</b> On that app's <i>Basic Information</i> page, copy the <b>Client ID</b> and <b>Client Secret</b> here:</p>
-    <input type="text" id="sid" placeholder="Client ID" autocomplete="off"><input type="password" id="ssec" placeholder="Client Secret" autocomplete="off" style="margin-top:8px">
+    <input type="text" id="sid" placeholder="Client ID" autocomplete="off">${pf('ssec','Client Secret','margin-top:8px')}
     <p id="serr" class="small" style="color:var(--bad)"></p><div class="row"><div class="sp"></div><button class="btn" onclick="connectModal()">Back</button><button class="btn pri" id="sgo">Save &amp; continue to Slack</button></div>
     <p class="small mut" style="margin-top:16px;border-top:1px solid var(--line);padding-top:12px">Demoing on your own workspace and OK skipping this for now? <a href="#" onclick="slackSessionModal();return false">Use your Slack session instead</a>.</p>`);
     $('#sgo').onclick=async()=>{try{await api('/oauth/settings',{method:'PUT',body:{SLACK_CLIENT_ID:$('#sid').value,SLACK_CLIENT_SECRET:$('#ssec').value}});location='/oauth/slack/start'}catch(e){$('#serr').textContent=e.message}}}
   else modal(`<div class="k">// One-time setup · Discord</div><h2 style="margin:4px 0 14px">Connect leadme to Discord</h2>
     <p><b>1.</b> <a class="btn sm pri" target="_blank" rel="noopener" href="https://discord.com/developers/applications">Open Discord Developer Portal</a> → New Application → <i>OAuth2</i>. Add this redirect:</p><code class="cp" onclick="cp(this)">${esc(redir)}</code>
     <p><b>2.</b> Paste the app's <b>Client ID</b> and <b>Client Secret</b> (OAuth2 page), and the <b>Bot token</b> (Bot page, and turn on <b>Message Content Intent</b> there):</p>
-    <input type="text" id="did" placeholder="Client ID" autocomplete="off"><input type="password" id="dsec" placeholder="Client Secret" autocomplete="off" style="margin-top:8px"><input type="password" id="dbot" placeholder="Bot token" autocomplete="off" style="margin-top:8px">
+    <input type="text" id="did" placeholder="Client ID" autocomplete="off">${pf('dsec','Client Secret','margin-top:8px')}${pf('dbot','Bot token','margin-top:8px')}
     <p id="derr" class="small" style="color:var(--bad)"></p><div class="row"><div class="sp"></div><button class="btn" onclick="connectModal()">Back</button><button class="btn pri" id="dgo">Save &amp; continue to Discord</button></div>
     <p class="small mut" style="margin-top:16px;border-top:1px solid var(--line);padding-top:12px">No bot, no server admin involved? <a href="#" onclick="discordSessionModal();return false">Use your Discord account directly</a>.</p>`),
     $('#dgo').onclick=async()=>{try{await api('/oauth/settings',{method:'PUT',body:{DISCORD_CLIENT_ID:$('#did').value,DISCORD_CLIENT_SECRET:$('#dsec').value,DISCORD_BOT_TOKEN:$('#dbot').value}});location='/oauth/discord/start'}catch(e){$('#derr').textContent=e.message}}}
@@ -160,7 +164,7 @@ function discordSessionModal(){
   <div class="banner">This is <b>your personal Discord login</b>, not a scoped app connection — it reads (and can post as) everything your account can, in every server it's in. Discord explicitly bans this ("self-botting") and enforces it harder than Slack, sometimes at the device level. Use it only on an account you're fine losing.</div>
   <label class="f">1. In your own browser, open Discord (discord.com/app) and sign in</label>
   <label class="f">2. DevTools (⌥⌘I) → Network tab → click around (open a server) → find any request to discord.com/api/* → copy its <b>Authorization</b> request header value</label>
-  <input type="password" id="dxt" placeholder="Your Discord token" autocomplete="off">
+  ${pf('dxt','Your Discord token')}
   <label class="f">Label</label><input type="text" id="dxl" placeholder="e.g. Demo Discord">
   <p id="dxerr" class="small" style="color:var(--bad)"></p>
   <div class="row" style="margin-top:14px"><button class="btn" onclick="setupModal('discord',{})">Back</button><div class="sp"></div><button class="btn pri" id="dxgo">Connect</button></div>`);
@@ -229,7 +233,7 @@ async function aiModal(){const a=await api('/ai');
   ${a.cliMissing?'<p class="small" style="color:var(--bad)">Claude Code CLI not found on this machine, use an API key instead.</p>':''}
   <label class="f">Sign in with your Claude account</label><p class="mut small" style="margin:0 0 8px">Opens a Claude sign-in window on the machine running this app. Uses your subscription, no key needed.</p>
   <button class="btn pri" id="aiLogin" ${a.cliMissing?'disabled':''}>${a.connected&&a.method==='Claude subscription'?'Sign in again':'Sign in with Claude'}</button> <span id="aiMsg" class="mut small"></span>
-  <label class="f">Or paste an API key</label><div class="row"><input type="password" id="aiKey" placeholder="sk-ant-…" autocomplete="off" style="flex:1"><button class="btn" id="aiSave">Save</button>${a.method==='API key'?'<button class="btn danger" id="aiDel">Remove</button>':''}</div><p id="aiErr" class="small" style="color:var(--bad)"></p>
+  <label class="f">Or paste an API key</label><div class="row">${pf('aiKey','sk-ant-…','flex:1')}<button class="btn" id="aiSave">Save</button>${a.method==='API key'?'<button class="btn danger" id="aiDel">Remove</button>':''}</div><p id="aiErr" class="small" style="color:var(--bad)"></p>
   <div class="row"><div class="sp"></div><button class="btn" onclick="closeModal()">Close</button></div>`);
   $('#aiLogin').onclick=async()=>{await api('/ai/login',{method:'POST'});$('#aiMsg').textContent='Waiting for you to finish signing in…';const t=setInterval(async()=>{const s=await api('/ai');if(s.connected&&!s.loggingIn){clearInterval(t);load();aiModal()}},2000);setTimeout(()=>clearInterval(t),300000)};
   $('#aiSave').onclick=async()=>{try{await api('/ai/key',{method:'POST',body:{key:$('#aiKey').value}});load();aiModal()}catch(e){$('#aiErr').textContent=e.message}};
