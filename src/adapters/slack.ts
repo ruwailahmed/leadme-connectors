@@ -1,10 +1,23 @@
 import type { Account, Adapter, Channel, NormalizedMessage, Workspace } from '../types.ts';
+import { impersonateSlack, slackPageApi } from '../auth/session.ts';
 
 // Read-only listening through Slack's Web API with the user token from "Continue with Slack".
 // Replies are human-initiated only. Polite rate limits.
 const BASE = () => process.env.SLACK_API_BASE ?? 'https://slack.com/api';
 
 async function api(a: Account, method: string, params: Record<string, string | number> = {}, post = false) {
+  // Impersonation mode: the call goes out from the account's own browser, so Slack keeps rotating
+  // its token/cookie for us instead of invalidating a copied pair.
+  if (impersonateSlack(a)) {
+    try {
+      const j = await slackPageApi(a, method, params);
+      if (!j.ok) throw new Error(j.error ?? 'slack_error');
+      return j;
+    } catch (e: any) {
+      if (!/browser|chrome|cdp|page_|timeout|not_json|empty|not_authed|invalid_auth|token_revoked/.test(e.message)) throw e;
+      console.error('browser transport failed, falling back to the copied token', method, e.message);
+    }
+  }
   // OAuth user token (xoxp-...): Bearer header, scoped to what the app asked for.
   // Session token (xoxc-... + "d" cookie, pasted from the account owner's own browser, their own
   // explicit opt-in on a workspace they accept the ToS/ban risk for): full-session auth, Slack's web client shape.

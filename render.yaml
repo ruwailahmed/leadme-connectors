@@ -1,0 +1,21 @@
+services:
+  - type: web
+    name: leadme-connectors
+    runtime: docker
+    plan: free
+    healthCheckPath: /healthz
+    envVars:
+      - key: AUTH_HEADLESS
+        value: "1"
+      - key: DATA_DIR
+        value: /tmp/leadme
+      - key: APP_PASSWORD
+        sync: false
+      - key: CREDENTIALS_KEY
+        generateValue: true
+      - key: TENANT_SECRET
+        generateValue: true
+      - key: SERVICE_TOKEN
+        generateValue: true
+      - key: SESSION_WEBHOOK_SECRET
+        generateValue: true

@@ -5,6 +5,8 @@ export interface Account {
   id: string;
   platform: Platform;
   mode: 'demo' | 'live';
+  tenantId?: string;
+  browser?: BrowserConfig;
   label: string;
   email: string;
   token?: string;
@@ -17,6 +19,73 @@ export interface Account {
   statusNote?: string;
   lastSync?: number;
   createdAt: number;
+}
+
+// ---------- persistent sessions / automatic sign-in ----------
+export interface Credential {
+  id: string;
+  accountId: string;
+  platform: Platform;
+  sealed: string;          // AES-256-GCM blob: username, password, totpSecret, backupCodes, proxy
+  createdAt: number;
+  updatedAt: number;
+  lastLoginAt?: number;
+  lastLoginError?: string;
+}
+
+export type CheckpointType = 'OTP' | 'TWO_FA' | 'PHONE_REGISTER' | 'IN_APP_VALIDATION' | 'CAPTCHA' | 'UNKNOWN';
+
+export interface AuthCheckpoint {
+  id: string;
+  type: CheckpointType;
+  prompt: string;
+  requestedAt: number;
+  expiresAt: number;
+  attempts: number;
+  liveView: boolean;
+  resolvedAt?: number;
+  error?: string;
+}
+
+export interface AuthLogEntry { ts: number; level: 'info' | 'warn' | 'error'; msg: string }
+
+export type AutoAuthStatus = 'idle' | 'running' | 'waiting_human' | 'succeeded' | 'failed' | 'stopped';
+
+export interface AutoAuth {
+  accountId: string;
+  enabled: boolean;
+  status: AutoAuthStatus;
+  attempts: number;
+  nextRetryAt?: number;
+  lastAttemptAt?: number;
+  lastSuccessAt?: number;
+  lastError?: string;
+  lastReason?: string;
+  checkpoint?: AuthCheckpoint;
+  log: AuthLogEntry[];
+  updatedAt: number;
+}
+
+export type LoginSession = Pick<Account, 'token' | 'sessionCookie' | 'selfToken' | 'userToken' | 'refreshToken' | 'userTokenExp'>;
+
+// ---------- browser identity (Dolphin-style profile) ----------
+export interface Fingerprint {
+  userAgent?: string;
+  timezone?: string;
+  locale?: string;
+  proxy?: string;
+  width?: number;
+  height?: number;
+  colorScheme?: 'light' | 'dark';
+}
+
+export type BrowserMode = 'builtin' | 'dolphin' | 'ws';
+
+export interface BrowserConfig {
+  mode: BrowserMode;
+  profileId?: string;   // profile id inside Dolphin/AdsPower/GoLogin
+  ws?: string;          // explicit browser-level CDP endpoint
+  fingerprint?: Fingerprint;
 }
 
 export interface Workspace { id: string; name: string; members: number; icon: string; needsBot?: boolean }
@@ -49,6 +118,7 @@ export interface Criteria {
 
 export interface Monitor {
   id: string;
+  tenantId?: string;
   name: string;
   description: string;
   criteria?: Criteria;
@@ -61,6 +131,7 @@ export interface Monitor {
 export type AlertStatus = 'new' | 'read' | 'contacted' | 'bad_match' | 'archived';
 export interface Alert {
   id: string;
+  tenantId?: string;
   monitorId: string;
   monitorName: string;
   message: NormalizedMessage;

@@ -5,8 +5,8 @@
   "type": "module",
   "private": true,
   "scripts": {
-    "start": "node src/server.ts",
-    "dev": "node --watch src/server.ts",
+    "start": "node --env-file-if-exists=.env src/server.ts",
+    "dev": "node --watch --env-file-if-exists=.env src/server.ts",
     "test": "node --test src/*.test.ts",
     "build": "esbuild src/vercel.ts --bundle --platform=node --format=esm --target=node22 --outfile=api/index.js --banner:js=\"import{createRequire}from'module';const require=createRequire(import.meta.url);\""
   },

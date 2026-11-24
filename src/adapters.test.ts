@@ -29,6 +29,7 @@ await new Promise<void>(r => mock.listen(0, r));
 const port = (mock.address() as any).port;
 process.env.SLACK_API_BASE = `http://localhost:${port}/slack`;
 process.env.DISCORD_API_BASE = `http://localhost:${port}/discord`;
+process.env.SLACK_TRANSPORT = 'token';
 const { slackAdapter } = await import('./adapters/slack.ts');
 const { discordAdapter } = await import('./adapters/discord.ts');
 const acc = (platform: 'slack' | 'discord', extra: Partial<Account> = {}): Account => ({ id: 'a_' + platform, platform, mode: 'live', label: 'x', email: 'x', token: 't', status: 'healthy', createdAt: 0, ...extra });

@@ -82,12 +82,14 @@ const S={view:'connections',accounts:[],monitors:[],alerts:[],stats:{},filter:'n
 const ago=t=>{const s=(Date.now()-t)/1000;return s<60?'just now':s<3600?Math.floor(s/60)+'m ago':s<86400?Math.floor(s/3600)+'h ago':Math.floor(s/86400)+'d ago'};
 const pill=(s,txt)=>`<span class="pill ${s}"><i class="dot"></i>${esc(txt||s.replace('_',' '))}</span>`;
 function toast(h){const e=document.createElement('div');e.className='t';e.innerHTML=h;$('#toast').append(e);setTimeout(()=>e.remove(),6000)}
+let aaTimer=null;
 function modal(html){$('#sheet').innerHTML=html;$('#modal').classList.add('show')}
-function closeModal(){$('#modal').classList.remove('show')}
+function closeModal(){clearInterval(aaTimer);$('#modal').classList.remove('show')}
 $('#modal').addEventListener('mousedown',e=>{if(e.target.id==='modal')closeModal()});
 
 let load=async function load(){
   [S.accounts,S.monitors,S.alerts,S.stats]=await Promise.all([api('/accounts'),api('/monitors'),api('/alerts'+(S.filter?`?status=${S.filter}`:'')),api('/stats')]);
+  S.auth=await api('/autoauth').catch(()=>[]);
   $('#unread').hidden=!S.stats.unread;$('#unread').textContent=S.stats.unread;
   api('/ai').then(a=>{$('#engine').textContent=a.connected?`● AI: ${a.method}${a.plan?' ('+a.plan+')':''}`:'○ AI not connected — set up'}).catch(()=>{});
   render();
@@ -105,8 +107,8 @@ function rConn(){
   ${S.accounts.length?`<div class="grid">${S.accounts.map(accCard).join('')}</div>`:`<div class="empty">No accounts yet. Connect Slack or Discord to get started.</div>`}`;
   S.accounts.forEach(a=>{if(S.open[a.id])browse(a.id,false)});
 }
-const accCard=a=>`<div class="card" id="acc-${a.id}"><div class="row"><div class="plat ${a.platform}">${a.platform==='slack'?'S':'D'}</div><div><b>${esc(a.label)}</b><div class="mut small">${esc(a.email)} · ${a.mode==='demo'?'demo data':'live'}</div></div><div class="sp"></div>${pill(a.status)}</div>
-<div class="row" style="margin-top:12px"><button class="btn sm" onclick="browse('${a.id}',true)">${S.open[a.id]?'Hide':'Browse'} workspaces</button>${a.mode==='demo'?`<button class="btn sm" onclick="simulate('${a.id}','${a.status==='healthy'?'disconnected':'healthy'}')">${a.status==='healthy'?'Simulate drop':'Restore'}</button>`:''}<div class="sp"></div><button class="btn sm danger" onclick="removeAcc('${a.id}')">Remove</button></div><div class="mut small" style="margin-top:8px">Last sync ${a.lastSync?ago(a.lastSync):'—'}</div><div id="ws-${a.id}"></div></div>`;
+const accCard=a=>{const aa=(S.auth||[]).find(x=>x.accountId===a.id);const aaPill=!aa||!aa.enabled?'':pill(aa.status==='succeeded'?'healthy':aa.status==='waiting_human'?'degraded':aa.status==='failed'?'disconnected':'paused',aa.status==='waiting_human'?'needs a code':`auto: ${aa.status}`);const canBrowse=a.mode==='demo'||a.hasToken;return`<div class="card" id="acc-${a.id}"><div class="row"><div class="plat ${a.platform}">${a.platform==='slack'?'S':'D'}</div><div><b>${esc(a.label)}</b><div class="mut small">${esc(a.email)} · ${a.mode==='demo'?'demo data':'live'}</div></div><div class="sp"></div>${aaPill}${pill(a.status)}</div>
+<div class="row" style="margin-top:12px">${canBrowse?`<button class="btn sm" onclick="browse('${a.id}',true)">${S.open[a.id]?'Hide':'Browse'} workspaces</button>`:''}${a.mode==='demo'?`<button class="btn sm" onclick="simulate('${a.id}','${a.status==='healthy'?'disconnected':'healthy'}')">${a.status==='healthy'?'Simulate drop':'Restore'}</button>`:`<button class="btn sm ${a.hasToken?'':'pri'}" onclick="autoAuthModal('${a.id}')">${a.hasToken?'Auto sign-in':'Sign in'}</button>`}<div class="sp"></div><button class="btn sm danger" onclick="removeAcc('${a.id}')">Remove</button></div><div class="mut small" style="margin-top:8px">Last sync ${a.lastSync?ago(a.lastSync):'—'}</div><div id="ws-${a.id}"></div></div>`};
 async function browse(id,toggle){
   if(toggle)S.open[id]=!S.open[id];const box=$('#ws-'+id);if(!box)return;
   if(!S.open[id]){box.innerHTML='';return}
@@ -124,10 +126,10 @@ async function showMsgs(id,wid,cid){const box=document.getElementById('m-'+cid);
   try{const ms=await api(`/accounts/${id}/workspaces/${wid}/channels/${cid}/messages`);box.innerHTML=ms.length?ms.map(m=>`<div style="padding:8px 11px;border-top:1px solid var(--line);background:var(--panel2)"><div class="small"><b>${esc(m.author.name)}</b> <span class="mut">${ago(m.ts)}</span></div><div class="small" style="white-space:pre-wrap;word-break:break-word">${esc(m.text)}</div></div>`).join(''):'<div class="small mut" style="padding:8px 11px">No recent messages.</div>'}catch(e){box.innerHTML=`<div class="small" style="padding:8px 11px;color:var(--bad)">${esc(e.message)}</div>`}}
 async function connectModal(){
   const oc=await api('/oauth/config').catch(()=>({}));
-  modal(`<div class="row"><h2 style="margin:0">Choose a source account</h2><div class="sp"></div><button class="btn sm" onclick="closeModal()">✕</button></div>
-  <p class="mut">You'll continue through the provider's secure authentication flow.</p>
-  <div style="display:grid;gap:10px"><button class="prov" onclick="startConnect('slack')"><span class="plat slack">S</span>Slack<span class="arrow">›</span></button><button class="prov" onclick="startConnect('discord')"><span class="plat discord">D</span>Discord<span class="arrow">›</span></button></div>
-  <p class="small mut" style="margin-top:16px">${oc.slack||oc.discord?'You approve access on the provider\'s own page and land back here connected.':'First time: a one-time 2-minute setup connects leadme to Slack/Discord, then it is one click.'}<br><a href="#" onclick="demoAcc();return false">Or load demo data</a></p>`)}
+  modal(`<div class="row"><h2 style="margin:0">Connect a source account</h2><div class="sp"></div><button class="btn sm" onclick="closeModal()">✕</button></div>
+  <p class="mut">Signs in <b>as the account owner</b> and keeps the session alive. No app install, no admin approval, reads everything that account can see.</p>
+  <div style="display:grid;gap:10px"><button class="prov" onclick="loginOnlyModal('slack')"><span class="plat slack">S</span>Slack — sign in as the user<span class="arrow">›</span></button><button class="prov" onclick="loginOnlyModal('discord')"><span class="plat discord">D</span>Discord — sign in as the user<span class="arrow">›</span></button></div>
+  <p class="small mut" style="margin-top:16px;border-top:1px solid var(--line);padding-top:12px">Official app flow <b>(needs workspace admin approval — usually useless)</b>: <a href="#" onclick="startConnect('slack');return false">Slack</a> · <a href="#" onclick="startConnect('discord');return false">Discord</a><br>Paste an existing session: <a href="#" onclick="slackSessionModal();return false">Slack</a> · <a href="#" onclick="discordSessionModal();return false">Discord</a><br><a href="#" onclick="demoAcc();return false">Or load demo data</a></p>`)}
 async function startConnect(p){const oc=await api('/oauth/config');if(oc[p])return void(location='/oauth/'+p+'/start');setupModal(p,oc)}
 function slackSessionModal(){
   modal(`<div class="k">// Your own session · your own workspace</div><h2 style="margin:4px 0 10px">Use your Slack session</h2>
@@ -150,14 +152,14 @@ function setupModal(p,oc){
     <p><b>2.</b> On that app's <i>Basic Information</i> page, copy the <b>Client ID</b> and <b>Client Secret</b> here:</p>
     <input type="text" id="sid" placeholder="Client ID" autocomplete="off">${pf('ssec','Client Secret','margin-top:8px')}
     <p id="serr" class="small" style="color:var(--bad)"></p><div class="row"><div class="sp"></div><button class="btn" onclick="connectModal()">Back</button><button class="btn pri" id="sgo">Save &amp; continue to Slack</button></div>
-    <p class="small mut" style="margin-top:16px;border-top:1px solid var(--line);padding-top:12px">Demoing on your own workspace and OK skipping this for now? <a href="#" onclick="slackSessionModal();return false">Use your Slack session instead</a>.</p>`);
+    <p class="small mut" style="margin-top:16px;border-top:1px solid var(--line);padding-top:12px">Demoing on your own workspace and OK skipping this for now? <a href="#" onclick="slackSessionModal();return false">Use your Slack session instead</a> · <a href="#" onclick="loginOnlyModal('slack');return false">or store the login and sign in automatically</a>.</p>`);
     $('#sgo').onclick=async()=>{try{await api('/oauth/settings',{method:'PUT',body:{SLACK_CLIENT_ID:$('#sid').value,SLACK_CLIENT_SECRET:$('#ssec').value}});location='/oauth/slack/start'}catch(e){$('#serr').textContent=e.message}}}
   else modal(`<div class="k">// One-time setup · Discord</div><h2 style="margin:4px 0 14px">Connect leadme to Discord</h2>
     <p><b>1.</b> <a class="btn sm pri" target="_blank" rel="noopener" href="https://discord.com/developers/applications">Open Discord Developer Portal</a> → New Application → <i>OAuth2</i>. Add this redirect:</p><code class="cp" onclick="cp(this)">${esc(redir)}</code>
     <p><b>2.</b> Paste the app's <b>Client ID</b> and <b>Client Secret</b> (OAuth2 page), and the <b>Bot token</b> (Bot page, and turn on <b>Message Content Intent</b> there):</p>
     <input type="text" id="did" placeholder="Client ID" autocomplete="off">${pf('dsec','Client Secret','margin-top:8px')}${pf('dbot','Bot token','margin-top:8px')}
     <p id="derr" class="small" style="color:var(--bad)"></p><div class="row"><div class="sp"></div><button class="btn" onclick="connectModal()">Back</button><button class="btn pri" id="dgo">Save &amp; continue to Discord</button></div>
-    <p class="small mut" style="margin-top:16px;border-top:1px solid var(--line);padding-top:12px">No bot, no server admin involved? <a href="#" onclick="discordSessionModal();return false">Use your Discord account directly</a>.</p>`),
+    <p class="small mut" style="margin-top:16px;border-top:1px solid var(--line);padding-top:12px">No bot, no server admin involved? <a href="#" onclick="discordSessionModal();return false">Use your Discord account directly</a> · <a href="#" onclick="loginOnlyModal('discord');return false">or store the login and sign in automatically</a>.</p>`),
     $('#dgo').onclick=async()=>{try{await api('/oauth/settings',{method:'PUT',body:{DISCORD_CLIENT_ID:$('#did').value,DISCORD_CLIENT_SECRET:$('#dsec').value,DISCORD_BOT_TOKEN:$('#dbot').value}});location='/oauth/discord/start'}catch(e){$('#derr').textContent=e.message}}}
 function discordSessionModal(){
   modal(`<div class="k">// Your own account · no bot, no admin</div><h2 style="margin:4px 0 10px">Use your Discord account directly</h2>
@@ -169,10 +171,76 @@ function discordSessionModal(){
   <p id="dxerr" class="small" style="color:var(--bad)"></p>
   <div class="row" style="margin-top:14px"><button class="btn" onclick="setupModal('discord',{})">Back</button><div class="sp"></div><button class="btn pri" id="dxgo">Connect</button></div>`);
   $('#dxgo').onclick=async()=>{try{$('#dxgo').disabled=true;await api('/accounts',{method:'POST',body:{platform:'discord',mode:'live',label:$('#dxl').value||'Discord (session)',selfToken:$('#dxt').value.trim()}});closeModal();load()}catch(e){$('#dxerr').textContent=e.message;$('#dxgo').disabled=false}}}
+function loginOnlyModal(p){
+  const name=p==='slack'?'Slack':'Discord';
+  modal(`<div class="k">// Stored login · ${name}</div><h2 style="margin:4px 0 10px">Sign in with ${name} credentials</h2>
+  <div class="banner">Creates the account with <b>no session yet</b>, then stores the login encrypted and signs in. A saved 2FA setup key answers the authenticator step; anything else asks you for a code. Same terms/ban risk as the other session paths.</div>
+  <label class="f">Label</label><input type="text" id="loL" placeholder="${p==='slack'?'e.g. GTMCafe workspace':'e.g. My Discord'}">
+  <div class="row" style="margin-top:14px"><button class="btn" onclick="connectModal()">Back</button><div class="sp"></div><button class="btn pri" id="loGo">Create &amp; enter login</button></div>`);
+  $('#loGo').onclick=async()=>{try{$('#loGo').disabled=true;const a=await api('/accounts',{method:'POST',body:{platform:p,mode:'live',loginOnly:true,label:$('#loL').value||undefined}});await load();autoAuthModal(a.id)}catch(e){toast(esc(e.message));$('#loGo').disabled=false}};
+}
 async function demoAcc(){for(const p of ['slack','discord'])await api('/accounts',{method:'POST',body:{platform:p,mode:'demo',label:p==='slack'?'Demo Slack':'Demo Discord',email:'demo@leadme.app'}});closeModal();load()}
 const simulate=async(id,status)=>{await api(`/accounts/${id}/simulate`,{method:'POST',body:{status}});load()};
 const reconnect=async id=>{await api(`/accounts/${id}/reconnect`,{method:'POST'});load()};
 const removeAcc=async id=>{if(confirm('Remove this account and detach it from monitors?')){await api('/accounts/'+id,{method:'DELETE'});load()}};
+
+/* ---------- stored logins / automatic sign-in ---------- */
+async function cpClick(ev,id){
+  const img=ev.currentTarget;const r=img.getBoundingClientRect();
+  const x=Math.round((ev.clientX-r.left)*(img.naturalWidth/r.width));
+  const y=Math.round((ev.clientY-r.top)*(img.naturalHeight/r.height));
+  try{await api(`/accounts/${id}/autoauth/click`,{method:'POST',body:{x,y}});img.src=`/api/accounts/${id}/autoauth/frame?t=${Date.now()}`}catch(e){toast(esc(e.message))}
+}
+async function autoAuthModal(id){
+  clearInterval(aaTimer);
+  const a=S.accounts.find(x=>x.id===id);if(!a)return;
+  let s,d,bv;try{[s,d,bv]=await Promise.all([api(`/accounts/${id}/autoauth`),api('/autoauth/drivers').catch(()=>({})),api(`/accounts/${id}/browser`).catch(()=>({}))]);}catch(e){return void toast(esc(e.message))}
+  const fp=(bv&&bv.effective)||{},cfg=(bv&&bv.config)||{mode:'builtin'},prof=(bv&&bv.profile)||{exists:false,mb:0};
+  const e=s.autoauth||{},c=s.credential||{},sec=c.secret||{},cp=e.checkpoint,st=e.status||'idle';
+  const warn=(d.serverless&&a.platform==='slack')?'This deployment is serverless — the Slack browser driver needs the always-on host. ':(d.slack&&d.slack.ok===false?esc(d.slack.note)+'. ':'');
+  modal(`<div class="k">// Persistent session · ${esc(a.platform)}</div>
+  <div class="row"><h2 style="margin:4px 0 10px">Automatic sign-in — ${esc(a.label)}</h2><div class="sp"></div><button class="btn sm" onclick="closeModal()">✕</button></div>
+  <div class="banner">The account's own login is stored here encrypted (key: ${esc(c.strength||'unset')}). When the session ends it signs itself back in; a saved 2FA setup key answers the authenticator step. Email/SMS codes, phone approvals and CAPTCHAs stop and ask you. Same terms/ban risk as the manual session paths.</div>
+  ${warn?`<div class="banner">⚠️ ${warn}</div>`:''}
+  <div class="verdict ${st==='succeeded'?'y':st==='failed'?'n':''}"><b>${esc(st.replace('_',' '))}</b>${e.attempts?` · attempt ${e.attempts}`:''}${e.lastSuccessAt?` · last success ${ago(e.lastSuccessAt)}`:''}${e.nextRetryAt?` · next try in ${Math.max(1,Math.round((e.nextRetryAt-Date.now())/60000))}m`:''}${e.lastError?`<div class="small">${esc(e.lastError)}</div>`:''}</div>
+  ${cp?`<div class="verdict n" style="margin-top:10px"><b>${esc(cp.type)}</b> — ${esc(cp.prompt)}${cp.error?`<div class="small">${esc(cp.error)}</div>`:''}
+    <div class="row" style="margin-top:8px"><input type="text" id="aacode" inputmode="numeric" placeholder="code" style="flex:1"><button class="btn sm pri" id="aacodego">Submit code</button></div>
+    ${cp.liveView?`<div class="small mut" style="margin-top:8px">Live view — click directly in it to solve a CAPTCHA or tap a button.</div><img id="aaframe" onclick="cpClick(event,'${id}')" src="/api/accounts/${id}/autoauth/frame?t=${Date.now()}" style="max-width:100%;border:1px solid var(--line);border-radius:8px;margin-top:4px;cursor:crosshair" alt="live view">`:''}</div>`:''}
+  <label class="f">Login (email / phone / username)</label><input type="text" id="aaUser" value="${esc(sec.username||a.email||'')}" autocomplete="off">
+  <label class="f">Password</label>${pf('aaPass',sec.hasPassword?'stored — leave blank to keep':'account password')}
+  <label class="f">2FA setup key <span class="mut small">(text behind the QR code, or the whole otpauth:// link)</span></label><input type="text" id="aaTotp" placeholder="${sec.hasTotp?esc('saved '+sec.totpPreview):'JBSWY3DPEHPK3PXP'}" autocomplete="off">
+  <label class="f">Proxy <span class="mut small">(optional; one stable IP per account)</span></label><input type="text" id="aaProxy" placeholder="${sec.proxy?esc(sec.proxy):'http://user:pass@host:port'}" autocomplete="off">
+  <p id="aaerr" class="small" style="color:var(--bad)"></p>
+  <div class="row" style="margin-top:14px"><label class="small mut"><input type="checkbox" id="aaOn" ${e.enabled?'checked':''}> sign in automatically</label><div class="sp"></div>
+    <button class="btn sm" id="aaRun">Reconnect now</button><button class="btn sm" id="aaForget">Forget</button><button class="btn sm pri" id="aaSay">Save</button></div>
+  <label class="f">Recent activity</label><div class="small mut" style="max-height:150px;overflow:auto">${(e.log||[]).slice(0,10).map(l=>`<div>${new Date(l.ts).toLocaleTimeString()} · ${esc(l.msg)}</div>`).join('')||'nothing yet'}</div>
+  <details style="margin-top:16px;border-top:1px solid var(--line);padding-top:12px"><summary style="cursor:pointer;font-weight:600">Browser identity — Dolphin-style profile</summary>
+    <p class="small mut" style="margin:8px 0">Every account keeps its own profile: cookies, storage, user agent, timezone, viewport, proxy. Point it at a Dolphin / AdsPower profile to reuse that fingerprint and IP instead of ours.</p>
+    <label class="f">Browser</label><select id="aaMode"><option value="builtin"${cfg.mode==='builtin'?' selected':''}>Built-in Chromium (ours)</option><option value="dolphin"${cfg.mode==='dolphin'?' selected':''}>Dolphin / anti-detect profile</option><option value="ws"${cfg.mode==='ws'?' selected':''}>Custom CDP ws endpoint</option></select>
+    <div id="aaPidWrap"${cfg.mode==='dolphin'?'':' hidden'}><label class="f">Dolphin profile id</label><input type="text" id="aaPid" value="${esc(cfg.profileId||'')}" placeholder="e.g. 401234"></div>
+    <div id="aaWsWrap"${cfg.mode==='ws'?'':' hidden'}><label class="f">CDP ws endpoint</label><input type="text" id="aaWs" value="${esc(cfg.ws||'')}" placeholder="ws://127.0.0.1:9222/devtools/browser/…"></div>
+    <label class="f">User agent</label><input type="text" id="aaUA" value="${esc(fp.userAgent||'')}">
+    <div class="row"><div style="flex:1"><label class="f">Timezone</label><input type="text" id="aaTz" value="${esc(fp.timezone||'')}" placeholder="America/New_York"></div><div style="flex:1"><label class="f">Locale</label><input type="text" id="aaLoc" value="${esc(fp.locale||'en-US')}"></div></div>
+    <div class="row"><div style="flex:1"><label class="f">Width</label><input type="text" id="aaW" value="${esc(String(fp.width||1280))}"></div><div style="flex:1"><label class="f">Height</label><input type="text" id="aaH" value="${esc(String(fp.height||800))}"></div><div style="flex:1"><label class="f">Scheme</label><select id="aaScheme"><option value="light"${fp.colorScheme!=='dark'?' selected':''}>light</option><option value="dark"${fp.colorScheme==='dark'?' selected':''}>dark</option></select></div></div>
+    <div class="row" style="margin-top:10px"><span class="small mut">profile: ${prof.exists?`${prof.mb} MB on disk`:'not created yet'}</span><div class="sp"></div><button class="btn sm" id="aaInspect">Inspect</button><button class="btn sm danger" id="aaReset">Reset identity</button><button class="btn sm pri" id="aaIdentity">Save identity</button></div>
+    <div id="aainspect" class="small mut"></div>
+  </details>`);
+  const post=async(p,body)=>{try{await api(`/accounts/${id}/autoauth/${p}`,{method:'POST',body});await load();autoAuthModal(id)}catch(err){$('#aaerr').textContent=err.message}};
+  $('#aaSay').onclick=async()=>{try{$('#aaSay').disabled=true;const body={username:$('#aaUser').value.trim(),enabled:$('#aaOn').checked};
+    if($('#aaPass').value.trim())body.password=$('#aaPass').value.trim();
+    if($('#aaTotp').value.trim())body.totpSecret=$('#aaTotp').value.trim();
+    if($('#aaProxy').value.trim())body.proxy=$('#aaProxy').value.trim();
+    await api(`/accounts/${id}/autoauth`,{method:'PUT',body});closeModal();load();toast('🔐 Credentials saved')}catch(err){$('#aaerr').textContent=err.message;$('#aaSay').disabled=false}};
+  $('#aaRun').onclick=()=>post('run',{});
+  $('#aaForget').onclick=async()=>{if(confirm('Delete the stored login for this account?')){try{await api(`/accounts/${id}/autoauth`,{method:'DELETE'});await api(`/accounts/${id}/autoauth/stop`,{method:'POST'});closeModal();load()}catch(err){$('#aaerr').textContent=err.message}}};
+  if($('#aacodego'))$('#aacodego').onclick=()=>{const v=$('#aacode').value.trim();if(v)post('code',{code:v})};
+  if(cp&&cp.liveView)aaTimer=setInterval(()=>{const f=$('#aaframe');if(!f)return clearInterval(aaTimer);f.src=`/api/accounts/${id}/autoauth/frame?t=${Date.now()}`},2500);
+  const modeSel=$('#aaMode');const syncMode=()=>{const m=modeSel.value;$('#aaPidWrap').hidden=m!=='dolphin';$('#aaWsWrap').hidden=m!=='ws'};
+  modeSel.onchange=syncMode;
+  $('#aaIdentity').onclick=async()=>{try{await api(`/accounts/${id}/browser`,{method:'PUT',body:{mode:modeSel.value,profileId:$('#aaPid').value.trim()||undefined,ws:$('#aaWs').value.trim()||undefined,fingerprint:{userAgent:$('#aaUA').value.trim(),timezone:$('#aaTz').value.trim(),locale:$('#aaLoc').value.trim(),width:Number($('#aaW').value)||undefined,height:Number($('#aaH').value)||undefined,colorScheme:$('#aaScheme').value,proxy:$('#aaProxy').value.trim()||undefined}}});toast('🪪 Browser identity saved — it applies to the next sign-in');autoAuthModal(id)}catch(err){$('#aaerr').textContent=err.message}};
+  $('#aaReset').onclick=async()=>{if(!confirm('Wipe this profile (cookies, storage, device identity) and require a fresh sign-in?'))return;try{await api(`/accounts/${id}/browser/reset`,{method:'POST'});toast('Identity wiped — sign in again');autoAuthModal(id)}catch(err){$('#aaerr').textContent=err.message}};
+  $('#aaInspect').onclick=async()=>{const box=$('#aainspect');box.textContent='Opening the profile…';try{const r=await api(`/accounts/${id}/browser/inspect`,{method:'POST'});box.innerHTML=`<div>${esc(r.url||'')}</div><div>${r.cookieCount} cookies · ${esc((r.cookieDomains||[]).join(', '))}</div>`}catch(err){box.textContent=err.message}};
+}
 
 /* ---------- Monitors ---------- */
 function rMon(){$('#main').innerHTML=`<div class="row"><div><h1>Monitors</h1><p class="sub">Describe a lead in plain English. One monitor can watch Slack and Discord together.</p></div><div class="sp"></div><button class="btn pri" onclick="wizard()">+ New monitor</button></div>
@@ -245,7 +313,7 @@ async function aiModal(){const a=await api('/ai');
 let lastTop=null;
 function maybeToast(){const a=S.alerts[0];if(lastTop!==null&&a&&a.id!==lastTop&&a.status==='new')toast(`🎯 <b>${esc(a.message.author.name)}</b> · ${esc(a.message.workspace)} #${esc(a.message.channel)}<div class="mut small">${esc(a.message.text.slice(0,110))}</div>`);if(a)lastTop=a.id;else if(lastTop===null)lastTop='';}
 const _load=load;load=async function(){await _load();maybeToast()};
-api('/stats').then(st=>{if(st.sse){const es=new EventSource('/api/events');['alert','account','account_removed','monitor','alert_updated'].forEach(ev=>es.addEventListener(ev,()=>{if(!$('#modal').classList.contains('show')&&!document.activeElement?.matches('textarea,input'))load()}))}});
+api('/stats').then(st=>{if(st.sse){const es=new EventSource('/api/events');['alert','account','account_removed','monitor','alert_updated','autoauth'].forEach(ev=>es.addEventListener(ev,()=>{if(!$('#modal').classList.contains('show')&&!document.activeElement?.matches('textarea,input'))load()}))}});
 setInterval(()=>{if(!document.hidden&&!$('#modal').classList.contains('show')&&!document.activeElement?.matches('textarea,input'))load()},5000);
 const qp=new URLSearchParams(location.search);if(qp.get('connected')){setTimeout(()=>toast('✅ Connected '+esc(qp.get('connected'))+'. Pick your workspaces below.'),400)}if(qp.get('oauth')==='failed'){setTimeout(()=>toast('Sign-in did not complete. Try again.'),400)}if(qp.size)history.replaceState({},'','/');
 load();
