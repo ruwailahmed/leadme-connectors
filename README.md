@@ -26,9 +26,23 @@ npm test
 - **Demo** — seeded with the workspaces from the walkthrough (GTMCafe, Unipile, Clay, TTG, Websets; Discord servers) and a simulated message stream. Needs nothing.
 - **Live** — paste a token. Slack uses the Web API (one token per workspace; add several accounts for several workspaces). Discord uses the REST API with a bot token. Polling every 15 s, 400 ms between channels, `retry-after` honoured, 3 failures → "disconnected".
 
-## Run it on the customer's machine (agent)
-Sold as a service, the browser work belongs on the customer's machine: their IP, their fingerprint,
-their profiles. Our cloud only holds licences and the fleet view (`SAAS.md` explains the model).
+## Hosted (default): one link, one form, no install
+The customer gets a link, not a repo. Nothing to install, no terminal:
+
+```
+https://<our-host>/connect?t=<license>&platform=slack
+```
+
+They land on a single screen — email, password, optional 2FA setup key — and press one button. We run
+the browser on our side, keep the session alive, and show a live view if the provider asks for a code
+or a CAPTCHA. On success the page says "connected, you can close this tab".
+
+Mint the link with `POST /api/licenses` (service token) — it returns `license` and `connectUrl`.
+The same licence also authorises an agent if the customer wants their own machine (below).
+
+## Optional: the agent on the customer's machine
+For customers who want their own IP/fingerprint (fewer CAPTCHAs, cheaper for us) or an on-prem
+deployment. Same product, different host:
 
 ```bash
 curl -fsSL https://leadme-connectors.vercel.app/agent/install-agent.sh | bash -s -- \
@@ -36,9 +50,9 @@ curl -fsSL https://leadme-connectors.vercel.app/agent/install-agent.sh | bash -s
   --url https://leadme-connectors.vercel.app/agent/leadme-agent-1.0.0.tgz
 ```
 
-Installs a login service, binds the console to `127.0.0.1:4310`, then registers with the control
-plane (`CONTROL_PLANE_URL` + `LICENSE_KEY`) and heartbeats every minute. Windows uses
-`install-agent.ps1`. Build the artifact with `bash scripts/make-agent-bundle.sh`.
+Installs a login service, binds the console to `127.0.0.1:4310`, registers with the control plane and
+heartbeats every minute. Windows uses `install-agent.ps1`. Build the artifact with
+`bash scripts/make-agent-bundle.sh`.
 
 ## Known limits (be upfront with the client)
 - Live mode covers workspaces/servers where the token's owner is allowed to read. Reading communities where you are only a member and cannot install an app means using a personal session token, which breaks Slack's and Discord's terms and can get the account banned. This build stays read-only, rate-limited and manual-reply for that reason; no account pools, proxies, or automated DMs.

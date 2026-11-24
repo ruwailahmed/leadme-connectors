@@ -557,9 +557,13 @@ export const handler = async (req: IncomingMessage, res: ServerResponse) => {
       const id = tenantFromCookie(`lm_t=${t}`);
       if (!id) { res.writeHead(400, { 'content-type': 'text/plain' }); return void res.end('This connect link is invalid or was tampered with.'); }
       const p = url.searchParams.get('platform');
+      const wantsOauth = url.searchParams.get('oauth') === '1';
+      const dest = (p === 'slack' || p === 'discord')
+        ? (wantsOauth ? `/oauth/${p}/start` : `/connect.html?platform=${p}`)
+        : '/';
       const secure = serverless || (process.env.PUBLIC_URL ?? '').startsWith('https') ? '; Secure' : '';
       res.writeHead(302, {
-        location: p === 'slack' || p === 'discord' ? `/oauth/${p}/start` : '/',
+        location: dest,
         'set-cookie': `lm_t=${t}; HttpOnly; SameSite=Lax; Path=/; Max-Age=31536000${secure}`,
       });
       return void res.end();

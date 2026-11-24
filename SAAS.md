@@ -1,9 +1,64 @@
 # Selling this as a service
 
-The product is an **agent**: the customer's machine runs every browser, profile and session. Our
-cloud is only the control plane — licences, fleet health, config, billing later. That is exactly how
-Dolphin Anty is sold, and it removes the three things that make this hard to run centrally: browser
-RAM, datacenter CAPTCHAs, and per-account ban risk.
+**The product is a link, not an installer.** A customer clicks it, types their Slack/Discord login
+once, and we do the rest. Only enterprise/on-prem buyers ever see the agent.
+
+## Two delivery modes, one codebase
+| | Hosted (default) | Agent (enterprise / power users) |
+|---|---|---|
+| Customer does | clicks a link, fills one form | runs one installer, then clicks |
+| Browser runs on | our box | their machine |
+| Their IP / fingerprint | ours (datacenter) | theirs (residential) |
+| CAPTCHA risk | higher; solved in the live view | low |
+| Our cost | ~250 MB RAM per active account | zero |
+| Best for | speed to first value, demos, most customers | big agencies, ban-sensitive accounts |
+
+Price hosted seats to cover the browser; price agent seats lower (or the same, higher margin).
+
+## The hosted flow we sell
+1. We mint a licence: `POST /api/licenses` → `{ license, connectUrl }`.
+2. We send `https://<host>/connect?t=<license>&platform=slack`.
+3. They type email + password (+ optional 2FA setup key) and press one button.
+4. We sign in, capture the session, keep it alive (keeper + retry ladder), and show a live view for
+   anything a TOTP secret cannot answer — code, phone approval, CAPTCHA (clickable).
+5. Dashboard, alerts, CSV and replies are all behind the same licence cookie. No password, no signup.
+
+## Plans (proposal)
+| Plan | Accounts | Mode | Price |
+|---|---|---|---|
+| Starter | 3 | hosted | $79/mo |
+| Growth | 10 | hosted | $199/mo |
+| Agency | 40 | hosted | $499/mo |
+| On-prem | unlimited | agent | from $999/mo |
+
+Add-ons: extra accounts, managed Dolphin profiles, CRM alert forwarding, per-machine agent seats.
+
+## What is already built
+- Licence minting, signed connect links, tenant isolation (another tenant's ids 404).
+- Hosted connect page (`/connect.html`): form → progress → checkpoint/live view → done.
+- Login drivers for Slack (browser login → token+cookie, in-page API calls so Slack keeps rotating
+  for us) and Discord (API login + TOTP, browser fallback for CAPTCHA).
+- Persistent per-account profiles with UA/timezone/locale/viewport/proxy, resettable identity.
+- Keeper (probes stale sessions), retry ladder, single-flight, clickable live view.
+- Fleet endpoints + console view, and the optional agent installers for all three OSes.
+
+## Build order from here
+1. **Hosting**: one always-on box for the browser tier (Railway/Hetzner), plus a worker pool at
+   ~20 accounts per 4 GB. Keep the control plane on Vercel.
+2. **Billing**: Stripe → `POST /api/licenses` on subscription create; seat counting from heartbeats.
+3. **Onboarding email**: send the link + a 60-second Loom instead of docs.
+4. **Support bundle** endpoint (versions, Chrome path, profile sizes, sanitised logs).
+5. **Tray app + auto-update** for the agent tier; code-sign the installers.
+6. **Branded connect page** per tenant (logo/colour from the licence) — small change, big perceived polish.
+
+## Legal / risk posture
+- The customer opts in per account and accepts the platform ToS risk (Discord "self-bot" is stricter
+  than Slack). The connect page says so before they type anything.
+- Hosted mode: credentials are AES-256-GCM encrypted with our key; message content is processed, not
+  resold. Offer "delete my account" = delete the account row + profile.
+- Agent mode: we cannot decrypt their credentials at all; uninstalling wipes everything.
+- Revoking a licence/machine stops heartbeats; the local agent keeps running offline until checked
+  (by design — don't brick a customer when our cloud blips).
 
 ## Why the agent model
 | Problem | Central browsers (Unipile/Swarmhit) | Agent on the customer machine (us) |
