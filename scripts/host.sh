@@ -19,6 +19,7 @@ write_public() {
     echo "PUBLIC_URL=${url}" >> .env
   fi
   echo "$url" > "$URLFILE"
+  export PUBLIC_URL="$url"
   log "public url ($PROVIDER) -> $url"
 }
 
