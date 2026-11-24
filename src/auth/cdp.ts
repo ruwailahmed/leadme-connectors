@@ -53,6 +53,11 @@ const CANDIDATES = [
   '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge',
   '/usr/bin/google-chrome', '/usr/bin/google-chrome-stable', '/usr/bin/chromium', '/usr/bin/chromium-browser',
   '/nix/var/nix/profiles/default/bin/chromium', '/snap/bin/chromium',
+  'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+  'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
+  'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
+  'C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe',
+  process.env.LOCALAPPDATA ? `${process.env.LOCALAPPDATA}\\Google\\Chrome\\Application\\chrome.exe` : '',
 ].filter(Boolean) as string[];
 
 export const findChrome = () => CANDIDATES.find(p => existsSync(p)) ??
@@ -145,17 +150,32 @@ export class Browser {
     if (o.proxy) args.push(`--proxy-server=${o.proxy}`);
     if (process.platform === 'linux') args.push('--no-sandbox', '--disable-dev-shm-usage');
     args.push('about:blank');
-    const proc = spawn(bin, args, { stdio: 'ignore', detached: true });
-    proc.on('error', () => { /* surfaced by the port-file timeout */ });
-
     const portFile = join(o.profileDir, 'DevToolsActivePort');
+    const clearLocks = () => {
+      for (const f of ['SingletonLock', 'SingletonSocket', 'SingletonCookie', 'DevToolsActivePort']) {
+        try { rmSync(join(o.profileDir, f), { force: true }); } catch { /* best effort */ }
+      }
+    };
+    let proc!: ChildProcess;
     let port = '';
-    for (let i = 0; i < 150; i++) {
-      if (existsSync(portFile)) { port = readFileSync(portFile, 'utf8').split('\n')[0].trim(); if (port) break; }
-      if (proc.exitCode !== null) throw new Error(`chrome_exited_${proc.exitCode}`);
-      await sleep(100);
+    // Two attempts: a leftover browser (common on Windows, where we cannot pgrep it away) holds the
+    // profile lock; clearing the singleton files and retrying recovers it.
+    for (let attempt = 0; attempt < 2 && !port; attempt++) {
+      await releaseProfile(o.profileDir);
+      clearLocks();
+      proc = spawn(bin, args, { stdio: 'ignore', detached: true });
+      proc.on('error', () => { /* surfaced by the timeout below */ });
+      for (let i = 0; i < 120; i++) {
+        if (existsSync(portFile)) { port = readFileSync(portFile, 'utf8').split('\n')[0].trim(); if (port) break; }
+        if (proc.exitCode !== null) break;
+        await sleep(100);
+      }
+      if (!port && proc.exitCode === null) {
+        try { process.kill(-proc.pid!, 'SIGKILL'); } catch { try { proc.kill('SIGKILL'); } catch { /* gone */ } }
+        await sleep(300);
+      }
     }
-    if (!port) { await releaseProfile(o.profileDir); throw new Error('chrome_did_not_start'); }
+    if (!port) { await releaseProfile(o.profileDir); throw new Error(`chrome_did_not_start${proc?.exitCode != null ? `_${proc.exitCode}` : ''}`); }
 
     const httpBase = `http://127.0.0.1:${port}`;
     let wsUrl = '';

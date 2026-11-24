@@ -1,10 +1,10 @@
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
-import type { Account, Alert, AutoAuth, Credential, Monitor, NormalizedMessage } from './types.ts';
+import type { Account, Agent, Alert, AutoAuth, Credential, Monitor, NormalizedMessage } from './types.ts';
 
 export const DATA_DIR = process.env.DATA_DIR ?? (process.env.VERCEL ? '/tmp/leadme' : new URL('../data', import.meta.url).pathname);
 const FILE = `${DATA_DIR}/db.json`;
-export interface DB { accounts: Account[]; monitors: Monitor[]; alerts: Alert[]; history: NormalizedMessage[]; cursors: Record<string, number>; settings: Record<string, string>; credentials: Credential[]; autoauth: AutoAuth[]; sessionEvents: Record<string, number> }
-export const db: DB = { accounts: [], monitors: [], alerts: [], history: [], cursors: {}, settings: {}, credentials: [], autoauth: [], sessionEvents: {} };
+export interface DB { accounts: Account[]; monitors: Monitor[]; alerts: Alert[]; history: NormalizedMessage[]; cursors: Record<string, number>; settings: Record<string, string>; credentials: Credential[]; autoauth: AutoAuth[]; sessionEvents: Record<string, number>; agents: Agent[] }
+export const db: DB = { accounts: [], monitors: [], alerts: [], history: [], cursors: {}, settings: {}, credentials: [], autoauth: [], sessionEvents: {}, agents: [] };
 
 const REMOTE_URL = process.env.UPSTASH_REDIS_REST_URL ?? process.env.KV_REST_API_URL;
 const REMOTE_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN ?? process.env.KV_REST_API_TOKEN;
@@ -20,7 +20,7 @@ const call = async (path: string, body?: string) => (await fetch(`${REMOTE_URL}$
 export async function hydrate() {
   if (!remote) return;
   const j = await call('/get/leadme:db');
-  if (j.result) Object.assign(db, { cursors: {}, settings: {}, credentials: [], autoauth: [], sessionEvents: {}, ...JSON.parse(j.result) });
+  if (j.result) Object.assign(db, { cursors: {}, settings: {}, credentials: [], autoauth: [], sessionEvents: {}, agents: [], ...JSON.parse(j.result) });
   sanitize();
 }
 let dirty = false; let timer: NodeJS.Timeout | undefined;

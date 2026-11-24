@@ -13,8 +13,9 @@ import { slackAdapter } from './adapters/slack.ts';
 import { discordAdapter, setDiscordRefresher } from './adapters/discord.ts';
 import { abandonAuth, authClick, authFrame, autoauthFor, credentialView, driversStatus, forgetCredentials, ingestStatusEvent, noteSessionEnd, runNow, saveCredentials, setAuthEmitter, setEnabled, submitCode, tickAuth } from './auth/reconnect.ts';
 import { keeperStatus, keeperTick, setKeeperProbe } from './auth/keeper.ts';
+import { agentStatus, agentTokenFor, parseLicense, startAgentLoop, verifyAgentToken } from './agent.ts';
 import { closeBrowserSession, fingerprintFor, launchFor, profileDirFor } from './auth/session.ts';
-import type { Account, Adapter, Alert, Monitor, NormalizedMessage, Target } from './types.ts';
+import type { Account, Adapter, Agent, Alert, Monitor, NormalizedMessage, Target } from './types.ts';
 
 const PORT = Number(process.env.PORT ?? 4310);
 const PUBLIC = new URL('../public/', import.meta.url).pathname;
@@ -105,6 +106,8 @@ if (!serverless) setInterval(() => tick().catch(e => console.error('tick', e)), 
 if (!serverless) setInterval(() => tickAuth().catch(e => console.error('auth tick', e)), 1000);
 // Autonomous keeper: probe stale sessions so a dead token never sits unnoticed.
 if (!serverless) setInterval(() => keeperTick().catch(e => console.error('keeper', e)), 30_000);
+// Fleet heartbeat: only does work when CONTROL_PLANE_URL + LICENSE_KEY are set.
+if (!serverless) startAgentLoop();
 
 function seedHistory(a: Account, t: Target) {
   if (a.mode !== 'demo') return;
@@ -359,6 +362,58 @@ route('POST', '/api/connect-link', ({ body, req }) => {
 });
 route('GET', '/api/me', () => ({ tenant: tenant() }));
 
+// Licence minting for the sales side: one key per customer, same signer as connect links.
+route('POST', '/api/licenses', ({ body, req }) => {
+  const service = process.env.SERVICE_TOKEN;
+  if (service && String(req.headers.authorization ?? '') !== `Bearer ${service}`) throw Object.assign(new Error('invalid service token'), { status: 401 });
+  const id = String(body.tenantId ?? '').trim().slice(0, 64);
+  if (!id) throw bad('tenantId is required');
+  const platform = body.platform === 'slack' || body.platform === 'discord' ? body.platform : undefined;
+  return { tenantId: id, license: tenantCookieFor(id), connectUrl: connectUrl(BASE_URL(), id, platform) };
+});
+
+// ---------- fleet: one agent per customer machine, licence-authenticated ----------
+function agentRegister(body: any) {
+  const tenantId = parseLicense(String(body.license ?? ''));
+  if (!tenantId) throw Object.assign(new Error('invalid license key'), { status: 401 });
+  const now = Date.now();
+  const a: Agent = {
+    id: uid('agent'), tenantId,
+    name: String(body.name ?? body.host ?? 'agent').slice(0, 60),
+    host: String(body.host ?? '').slice(0, 80),
+    os: String(body.os ?? '').slice(0, 30),
+    arch: String(body.arch ?? '').slice(0, 30),
+    version: String(body.version ?? '').slice(0, 20),
+    createdAt: now, lastSeen: now,
+  };
+  db.agents.push(a); save();
+  return { agentId: a.id, token: agentTokenFor(a.id), tenantId, heartbeatSeconds: 60 };
+}
+
+function agentBeat(body: any, req: IncomingMessage) {
+  const id = String(body.agentId ?? '');
+  const a = db.agents.find(x => x.id === id);
+  if (!a) throw Object.assign(new Error('unknown agent'), { status: 404 });
+  if (a.revoked) throw Object.assign(new Error('agent revoked'), { status: 403 });
+  if (!verifyAgentToken(id, String(req.headers['x-agent-token'] ?? ''))) throw Object.assign(new Error('bad agent token'), { status: 401 });
+  a.lastSeen = Date.now();
+  for (const k of ['accounts', 'healthy', 'listening', 'alerts'] as const) {
+    const v = Number(body[k]);
+    if (Number.isFinite(v)) a[k] = Math.max(0, Math.round(v));
+  }
+  if (body.version) a.version = String(body.version).slice(0, 20);
+  save();
+  return { ok: true, tenantId: a.tenantId };
+}
+
+route('GET', '/api/agents', () => mine(db.agents).map(({ tenantId: _t, ...a }) => a));
+route('DELETE', '/api/agents/:id', ({ params }) => {
+  const a = mine(db.agents).find(x => x.id === params[0]);
+  if (!a) throw Object.assign(new Error('agent not found'), { status: 404 });
+  a.revoked = true; save();
+  return { ok: true };
+});
+
 route('GET', '/api/stats', () => {
   const accounts = mine(db.accounts); const monitors = mine(db.monitors); const alerts = mine(db.alerts);
   const mineAuthed = db.autoauth.filter(e => accounts.some(a => a.id === e.accountId));
@@ -370,7 +425,7 @@ route('GET', '/api/stats', () => {
     sse: !serverless, persistent: !serverless || remote, ai: (process.env.CLASSIFIER === 'rules' || serverless) && !process.env.ANTHROPIC_API_KEY ? 'rules' : 'llm',
     autoauth: { enabled: mineAuthed.filter(e => e.enabled).length, waiting: mineAuthed.filter(e => e.status === 'waiting_human').length, failed: mineAuthed.filter(e => e.status === 'failed').length },
     tenant: tenant(), sessionMode: process.env.SESSION_MODE ?? 'impersonate', slackTransport: process.env.SLACK_TRANSPORT ?? 'browser',
-    keeper: keeperStatus(),
+    keeper: keeperStatus(), agent: agentStatus(),
   };
 });
 
@@ -509,6 +564,12 @@ export const handler = async (req: IncomingMessage, res: ServerResponse) => {
       });
       return void res.end();
     }
+    if (url.pathname === '/api/agents/register' || url.pathname === '/api/agents/heartbeat') {
+      const body = await readBody(req);
+      const out = url.pathname.endsWith('register') ? agentRegister(body) : agentBeat(body, req);
+      res.writeHead(200, { 'content-type': 'application/json' });
+      return void res.end(JSON.stringify(out));
+    }
     if (!authed(req) && !serviceAuthed) {
       if (url.pathname.startsWith('/api/')) { res.writeHead(401, { 'content-type': 'application/json' }); return void res.end('{"error":"sign in required"}'); }
       res.writeHead(302, { location: '/login' }); return void res.end();
@@ -545,4 +606,4 @@ export const handler = async (req: IncomingMessage, res: ServerResponse) => {
   }
 };
 export default handler;
-if (!serverless) createServer(handler).listen(PORT, '0.0.0.0', () => console.log(`leadme connectors → http://localhost:${PORT}`));
+if (!serverless) createServer(handler).listen(PORT, process.env.AGENT_MODE === '1' ? '127.0.0.1' : '0.0.0.0', () => console.log(`leadme connectors → http://localhost:${PORT}${process.env.AGENT_MODE === '1' ? ' (agent mode, localhost only)' : ''}`));

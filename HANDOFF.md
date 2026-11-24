@@ -57,6 +57,36 @@ browser, so Slack/Discord impersonation lives on the Mac host / a container).
 - Vercel: `vercel --prod` (done). Serverless has no Chromium; the Slack driver reports `ok:false`
   and the UI says so.
 
+## Selling it: the agent runs on the customer's machine
+Our cloud is a control plane only. Each customer installs an agent; all browsers, profiles and
+sessions live with them. Full rationale, pricing and roadmap: **[SAAS.md](SAAS.md)**.
+
+One command (macOS/Linux), after minting a licence with `POST /api/licenses`:
+
+```bash
+curl -fsSL https://leadme-connectors.vercel.app/agent/install-agent.sh | bash -s -- \
+  --license "<license>" \
+  --url https://leadme-connectors.vercel.app/agent/leadme-agent-1.0.0.tgz
+```
+
+Windows: download `install-agent.ps1` and run
+`powershell -ExecutionPolicy Bypass -File install-agent.ps1 -License <key> -Url <tgz>`.
+
+It installs a login service (launchd / systemd user unit / Task Scheduler), binds the console to
+`127.0.0.1:4310`, writes an encrypted-vault key locally, registers with the cloud and heartbeats every
+minute. The cloud sees machine name, OS, version and counts — never cookies or message content.
+
+| Endpoint | Who | Purpose |
+|---|---|---|
+| `POST /api/licenses` | our backend (`SERVICE_TOKEN`) | mint a tenant's licence key + connect link |
+| `POST /api/agents/register` | agent (licence) | exchange a licence for a machine id + token |
+| `POST /api/agents/heartbeat` | agent (`x-agent-token`) | last-seen + accounts/monitors/alerts counts |
+| `GET /api/agents` | console | fleet view, tenant-scoped |
+| `DELETE /api/agents/:id` | console | revoke a machine (heartbeats start failing with 403) |
+
+Build the artifact to publish: `bash scripts/make-agent-bundle.sh` (prints the sha256). The copy in
+`public/agent/` is what the one-liner serves; bump the version in `package.json` when you ship.
+
 ## Known gaps (deliberate, next)
 1. **Scale.** One Chromium per active account (~250 MB). For 100+ accounts: a job queue plus a pool
    of workers, capped concurrency, profiles on a volume. Today the keeper is in-process.

@@ -26,6 +26,20 @@ npm test
 - **Demo** — seeded with the workspaces from the walkthrough (GTMCafe, Unipile, Clay, TTG, Websets; Discord servers) and a simulated message stream. Needs nothing.
 - **Live** — paste a token. Slack uses the Web API (one token per workspace; add several accounts for several workspaces). Discord uses the REST API with a bot token. Polling every 15 s, 400 ms between channels, `retry-after` honoured, 3 failures → "disconnected".
 
+## Run it on the customer's machine (agent)
+Sold as a service, the browser work belongs on the customer's machine: their IP, their fingerprint,
+their profiles. Our cloud only holds licences and the fleet view (`SAAS.md` explains the model).
+
+```bash
+curl -fsSL https://leadme-connectors.vercel.app/agent/install-agent.sh | bash -s -- \
+  --license "<license>" \
+  --url https://leadme-connectors.vercel.app/agent/leadme-agent-1.0.0.tgz
+```
+
+Installs a login service, binds the console to `127.0.0.1:4310`, then registers with the control
+plane (`CONTROL_PLANE_URL` + `LICENSE_KEY`) and heartbeats every minute. Windows uses
+`install-agent.ps1`. Build the artifact with `bash scripts/make-agent-bundle.sh`.
+
 ## Known limits (be upfront with the client)
 - Live mode covers workspaces/servers where the token's owner is allowed to read. Reading communities where you are only a member and cannot install an app means using a personal session token, which breaks Slack's and Discord's terms and can get the account banned. This build stays read-only, rate-limited and manual-reply for that reason; no account pools, proxies, or automated DMs.
 - Polling, not websockets: alerts arrive within ~15 s live (~4 s in demo).

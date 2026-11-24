@@ -81,6 +81,23 @@ export interface Fingerprint {
 
 export type BrowserMode = 'builtin' | 'dolphin' | 'ws';
 
+export interface Agent {
+  id: string;
+  tenantId: string;
+  name?: string;
+  host?: string;
+  os?: string;
+  arch?: string;
+  version?: string;
+  accounts?: number;
+  healthy?: number;
+  listening?: number;
+  alerts?: number;
+  createdAt: number;
+  lastSeen: number;
+  revoked?: boolean;
+}
+
 export interface BrowserConfig {
   mode: BrowserMode;
   profileId?: string;   // profile id inside Dolphin/AdsPower/GoLogin

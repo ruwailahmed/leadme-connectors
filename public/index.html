@@ -78,7 +78,7 @@ const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&
 const pf=(id,ph,style)=>`<div class="pwrap" ${style?`style="${style}"`:''}><input type="password" id="${id}" placeholder="${esc(ph)}" autocomplete="off"><button type="button" class="pweye" tabindex="-1" onclick="togglePw('${id}',this)">👁</button></div>`;
 function togglePw(id,btn){const i=document.getElementById(id);if(!i)return;const hidden=i.type==='password';i.type=hidden?'text':'password';btn.textContent=hidden?'🙈':'👁'}
 async function api(path,opt={}){const r=await fetch('/api'+path,{headers:{'content-type':'application/json'},...opt,body:opt.body?JSON.stringify(opt.body):undefined});const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.error||r.statusText);return j}
-const S={view:'connections',accounts:[],monitors:[],alerts:[],stats:{},filter:'new',open:{}};
+const S={view:'connections',accounts:[],monitors:[],alerts:[],stats:{},filter:'new',open:{},agents:[],auth:[]};
 const ago=t=>{const s=(Date.now()-t)/1000;return s<60?'just now':s<3600?Math.floor(s/60)+'m ago':s<86400?Math.floor(s/3600)+'h ago':Math.floor(s/86400)+'d ago'};
 const pill=(s,txt)=>`<span class="pill ${s}"><i class="dot"></i>${esc(txt||s.replace('_',' '))}</span>`;
 function toast(h){const e=document.createElement('div');e.className='t';e.innerHTML=h;$('#toast').append(e);setTimeout(()=>e.remove(),6000)}
@@ -90,6 +90,7 @@ $('#modal').addEventListener('mousedown',e=>{if(e.target.id==='modal')closeModal
 let load=async function load(){
   [S.accounts,S.monitors,S.alerts,S.stats]=await Promise.all([api('/accounts'),api('/monitors'),api('/alerts'+(S.filter?`?status=${S.filter}`:'')),api('/stats')]);
   S.auth=await api('/autoauth').catch(()=>[]);
+  S.agents=await api('/agents').catch(()=>[]);
   $('#unread').hidden=!S.stats.unread;$('#unread').textContent=S.stats.unread;
   api('/ai').then(a=>{$('#engine').textContent=a.connected?`● AI: ${a.method}${a.plan?' ('+a.plan+')':''}`:'○ AI not connected — set up'}).catch(()=>{});
   render();
@@ -103,6 +104,7 @@ const statsBar=()=>`<div class="stats"><div class="stat"><b>${S.stats.healthy}/$
 function rConn(){
   const degraded=S.accounts.filter(a=>a.status!=='healthy');
   $('#main').innerHTML=`<div class="row"><div><div class="k">// Connected sources</div><h1>Source accounts</h1><p class="sub">Connect an account, then choose the exact conversations leadme may monitor.</p></div><div class="sp"></div><button class="btn pri" onclick="connectModal()">+ Connect account</button></div>${statsBar()}
+  ${(S.agents||[]).length?`<div class="card" style="margin-bottom:16px"><div class="row"><b>Customer machines</b><span class="mut small">${(S.agents||[]).filter(a=>!a.revoked).length} active</span><div class="sp"></div><span class="mut small">agents run the browsers · this cloud only holds licences</span></div>${(S.agents||[]).map(a=>`<div class="row small" style="margin-top:8px;border-top:1px solid var(--line);padding-top:8px"><b>${esc(a.name||a.host||a.id)}</b><span class="mut">${esc(a.os||'')}${a.arch?'/'+esc(a.arch):''}${a.version?' · v'+esc(a.version):''}</span><div class="sp"></div><span class="mut">${a.accounts||0} accounts · ${a.listening||0} monitors · seen ${ago(a.lastSeen)}</span>${a.revoked?'<span class="pill disconnected">revoked</span>':`<button class="btn sm danger" onclick="revokeAgent('${a.id}')">Revoke</button>`}</div>`).join('')}</div>`:''}
   ${degraded.map(a=>`<div class="banner">⚠️ <b>${esc(a.label)}</b> (${a.platform}) is ${a.status}${a.statusNote?': '+esc(a.statusNote):''}. <button class="btn sm" onclick="reconnect('${a.id}')">Reconnect</button></div>`).join('')}
   ${S.accounts.length?`<div class="grid">${S.accounts.map(accCard).join('')}</div>`:`<div class="empty">No accounts yet. Connect Slack or Discord to get started.</div>`}`;
   S.accounts.forEach(a=>{if(S.open[a.id])browse(a.id,false)});
@@ -183,6 +185,7 @@ async function demoAcc(){for(const p of ['slack','discord'])await api('/accounts
 const simulate=async(id,status)=>{await api(`/accounts/${id}/simulate`,{method:'POST',body:{status}});load()};
 const reconnect=async id=>{await api(`/accounts/${id}/reconnect`,{method:'POST'});load()};
 const removeAcc=async id=>{if(confirm('Remove this account and detach it from monitors?')){await api('/accounts/'+id,{method:'DELETE'});load()}};
+const revokeAgent=async id=>{if(confirm('Revoke this customer machine? Its agent will start failing heartbeats.')){try{await api('/agents/'+id,{method:'DELETE'});load()}catch(e){toast(esc(e.message))}}};
 
 /* ---------- stored logins / automatic sign-in ---------- */
 async function cpClick(ev,id){
