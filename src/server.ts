@@ -430,7 +430,7 @@ route('GET', '/api/stats', () => {
 });
 
 // ---------- OAuth: official "Connect" buttons (no cookie/token copying) ----------
-const BASE_URL = () => process.env.PUBLIC_URL ?? (process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : null) ?? `http://localhost:${PORT}`;
+const BASE_URL = () => process.env.PUBLIC_URL ?? process.env.RENDER_EXTERNAL_URL ?? (process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : null) ?? `http://localhost:${PORT}`;
 const cfg = (k: string) => process.env[k] || db.settings[k] || '';
 const oauthCfg = () => ({
   slack: !!(cfg('SLACK_CLIENT_ID') && cfg('SLACK_CLIENT_SECRET')),

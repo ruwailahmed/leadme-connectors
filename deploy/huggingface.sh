@@ -22,7 +22,7 @@ cp "$ROOT/deploy/hf-readme.md" "$stage/README.md"
   && git remote add origin "https://user:$TOKEN@huggingface.co/spaces/$OWNER/$NAME" \
   && git push -f origin main )
 
-for kv in APP_PASSWORD CREDENTIALS_KEY TENANT_SECRET SERVICE_TOKEN SESSION_WEBHOOK_SECRET KV_REST_API_URL KV_REST_API_TOKEN PUBLIC_URL; do
+for kv in APP_PASSWORD CREDENTIALS_KEY TENANT_SECRET SERVICE_TOKEN SESSION_WEBHOOK_SECRET KV_REST_API_URL KV_REST_API_TOKEN; do
   v=$(printenv "$kv" || true)
   if [ -n "$v" ]; then
     curl -sS -X POST "https://huggingface.co/api/spaces/$OWNER/$NAME/secrets" \
@@ -31,5 +31,13 @@ for kv in APP_PASSWORD CREDENTIALS_KEY TENANT_SECRET SERVICE_TOKEN SESSION_WEBHO
   fi
 done
 
+SLUG=$(echo "$NAME" | tr '_' '-')
+APP_URL="https://$OWNER-$SLUG.hf.space"
+curl -sS -X POST "https://huggingface.co/api/spaces/$OWNER/$NAME/secrets" \
+  -H "Authorization: Bearer $TOKEN" -H 'content-type: application/json' \
+  -d "{\"key\":\"PUBLIC_URL\",\"value\":\"$APP_URL\"}" >/dev/null
+curl -sS -X POST "https://huggingface.co/api/spaces/$OWNER/$NAME/restart" \
+  -H "Authorization: Bearer $TOKEN" -H 'content-type: application/json' -d '{}' >/dev/null || true
+
 echo "Space page: https://huggingface.co/spaces/$OWNER/$NAME"
-echo "App URL:    https://$OWNER-$(echo "$NAME" | tr '_' '-').hf.space"
+echo "App URL:    $APP_URL"

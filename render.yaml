@@ -7,6 +7,8 @@ services:
     envVars:
       - key: AUTH_HEADLESS
         value: "1"
+      - key: CHROME_SINGLE_PROCESS
+        value: "1"
       - key: DATA_DIR
         value: /tmp/leadme
       - key: APP_PASSWORD

@@ -149,6 +149,8 @@ export class Browser {
     if (o.headless !== false) args.unshift('--headless=new');
     if (o.proxy) args.push(`--proxy-server=${o.proxy}`);
     if (process.platform === 'linux') args.push('--no-sandbox', '--disable-dev-shm-usage');
+    // Low-memory hosts (Render free = 512 MB): one process, no zygote, small heap.
+    if (process.env.CHROME_SINGLE_PROCESS === '1') args.push('--single-process', '--no-zygote', '--disable-gpu', '--js-flags=--max-old-space-size=192');
     args.push('about:blank');
     const portFile = join(o.profileDir, 'DevToolsActivePort');
     const clearLocks = () => {
